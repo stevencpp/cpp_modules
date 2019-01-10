@@ -46,6 +46,8 @@ public class CppM_CL : Task
 	[Required] public String Platform { get; set; }
 	[Required] public String PreProcess_Only { get; set; }
 	[Required] public String OutOfDate_File { get; set; }
+	[Required] public String BMI_Path { get; set; }
+	[Required] public String BMI_Ext { get; set; }
 	
 	ITaskItem[] CL_Input_OutOfDate_PP = null;
 	ITaskItem[] CL_Input_OutOfDate_Src = null;
@@ -118,7 +120,7 @@ public class CppM_CL : Task
 					}
 				}
 			} catch(System.IO.FileNotFoundException) {
-				
+				//Log.LogMessage(MessageImportance.High, "could not read {0}", directory + "cppm." + rws[i] + ".1.tlog");
 			}
 		}
 	}
@@ -147,8 +149,6 @@ public class CppM_CL : Task
 				prefix_to_tlog_set.Add(prefix, tlog_set);
 			}
 			foreach(string file_path in Directory.GetFiles(directory, "*.tlog")) {
-				
-				
 				string filename = Path.GetFileName(file_path);
 				int sep_idx = filename.IndexOfAny(new char[]{'.','-'});
 				string prefix = filename.Substring(0, sep_idx);
@@ -185,9 +185,10 @@ public class CppM_CL : Task
 				// note: GetOutOfDateItems doesn't work when the source file is in the list
 				// note: ignore temporary files like the RSP file for the command line
 				// note: for some reason the the PDB is both read and written to
+				// note: the inputs also must be unique
 				tlog_set.inputs = tlog_set.inputs.Where(file => 
 					file != tlog_set.src_file && File.Exists(file) && !tlog_set.outputs.Contains(file) 
-				).ToList();
+				).ToHashSet().ToList();
 			}
 			
 			to_delete.Add(prefixes_file);
@@ -224,12 +225,14 @@ public class CppM_CL : Task
 	ITaskItem[] GetOOD(string tlog_directory, Dictionary<string, TLogSet> src_to_tlog_set)
 	{
 		var get_ood_sources = new List<TaskItem>();
-		foreach(TLogSet tlog_set in src_to_tlog_set.Values) {
-			var item = new TaskItem(tlog_set.src_file);
-			for(int i = 0; i < 3; i++) {
-				item.SetMetadata(rws[i], String.Join(";", tlog_set.GetLines(i)));
-			}
-			get_ood_sources.Add(item);
+		foreach(ITaskItem item in CL_Input_All) {
+			var tlog_set = src_to_tlog_set[NormalizeFilePath(item.GetMetadata("FullPath"))];
+			var ood_item = new TaskItem(tlog_set.src_file);
+			ood_item.SetMetadata("write", String.Join(";", tlog_set.outputs));
+			ood_item.SetMetadata("read", String.Join(";", tlog_set.inputs));
+			// pass the current command instead of the previous command to GetOutOfDateItems
+			ood_item.SetMetadata("command", GetCommandFromItem(item));
+			get_ood_sources.Add(ood_item);
 		}
 		
 		var get_ood = new GetOutOfDateItems {
@@ -352,7 +355,7 @@ public class CppM_CL : Task
 	
 	CL GetCL(ITaskItem cl_item) {
 		CL cl = new CL {
-			BuildEngine = this.BuildEngine,
+			BuildEngine = this.BuildEngine
 		};
 		
 		foreach(string prop in props) {
@@ -372,11 +375,23 @@ public class CppM_CL : Task
 		return cl;
 	}
 	
-	string GetCommandFromCL(CL cl) {
-		return String.Join(" ", props.Select(prop => prop + "='" + GetPropertyFromString(cl, prop) + "'"));
+	string GetCommandFrom(System.Func<string, string> prop_to_value_func) {
+		return String.Join(";", props.Select(prop => prop + "='" + prop_to_value_func(prop) + "'"));
 	}
 	
-	String GetPreprocessedFile(ITaskItem item, string unique_prefix) {
+	string GetCommandFromItem(ITaskItem item) {
+		return GetCommandFrom(prop => item.GetMetadata(prop));
+	}
+	
+	string GetCommandFromPropertyDictionary(Dictionary<string, string> dict) {
+		return GetCommandFrom(prop => {
+			string ret = "";
+			dict.TryGetValue(prop, out ret);
+			return ret;
+		});
+	}
+	
+	String GetPreprocessedFile(ITaskItem item, string unique_prefix, string tracking_command) {
 		CL cl = GetCL(item);
 		if(cl == null)
 			return null;
@@ -384,7 +399,7 @@ public class CppM_CL : Task
 		string src_file = item.GetMetadata("FullPath");
 		StartTracking(cl.TrackerLogDirectory + "pp\\", unique_prefix);
 		bool success = cl.Execute();
-		EndTracking(success, cl.TrackerLogDirectory + "pp\\", unique_prefix, src_file, GetCommandFromCL(cl));
+		EndTracking(success, cl.TrackerLogDirectory + "pp\\", unique_prefix, src_file, tracking_command);
 		if(!success)
 			return null;
 		string pre_file = item.GetMetadata("ObjectFileName").ToString() + item.GetMetadata("Filename").ToString() + ".i";
@@ -527,15 +542,15 @@ public class CppM_CL : Task
 					entry_to_add = ModuleMap.Entry.create(src_file, module_def);
 				}
 			} else {
-				string bmi_file = item.GetMetadata("CppM_BMI_File").ToString();
 				var module_def = new ModuleDefinition {
-					bmi_file = bmi_file,
 					cl_params = Get_CL_PropertyDictionary(item),
 				};
 				
-				// todo: module_def.included_headers = ...;
+				string tracking_command = GetCommandFromPropertyDictionary(module_def.cl_params);
 				prefix_id++;
-				String preprocessed = GetPreprocessedFile(item, prefix_id.ToString());
+				String preprocessed = GetPreprocessedFile(item, prefix_id.ToString(), tracking_command);
+				if(preprocessed == null)
+					return false;
 				
 				//preprocessed = raw_string_pattern.Replace(preprocessed, "");
 				preprocessed = string_pattern.Replace(preprocessed, "");
@@ -543,6 +558,7 @@ public class CppM_CL : Task
 				Match m = export_pattern.Match(preprocessed);
 				if(m.Success) {
 					module_def.exported_module = m.Groups[1].ToString();
+					module_def.bmi_file = BMI_Path + module_def.exported_module + BMI_Ext;
 				}
 				
 				m = import_pattern.Match(preprocessed);
@@ -593,7 +609,6 @@ public class CppM_CL : Task
 		public bool imports_changed = false;
 		public bool build_finished = false;
 		public List<GlobalModuleMapNode> imported_by_nodes = new List<GlobalModuleMapNode>();
-		public HashSet<string> search_paths = null;
 		public LinkedListNode<string> ood_list_node = null;
 	}
 	
@@ -657,7 +672,7 @@ public class CppM_CL : Task
 			if(project_file != CurrentProject) {
 				// todo: maybe don't load this until it's definitely needed ? also, load only outputs
 				InitTLogs(src_to_tlog_set_src, module_map.entries.Select(entry => entry.source_file));
-				ReadTLogs(src_to_tlog_set_src, project.GetPropertyValue("TLogLocation") + "src\\");
+				ReadTLogs(src_to_tlog_set_src, project.GetPropertyValue("CppM_TLogLocation_FullPath") + "src\\");
 			}
 			
 			string ood_file = project.GetPropertyValue("CppM_OutOfDate_File");
@@ -736,7 +751,7 @@ public class CppM_CL : Task
 				Log.LogMessage(MessageImportance.High, "imported module '{0}' not found in global module map", import);
 				throw new ModuleNotFoundException();
 			}
-			// downward edges are needed in the whole subtree for the search path generation
+			// downward edges are needed in the whole subtree for the references generation
 			node.imports_nodes.Add(import_node);
 			
 			if(QueueLeavesToBuild(import_node, build_queue)) {
@@ -758,18 +773,26 @@ public class CppM_CL : Task
 		return node.subtree_has_leaves;
 	}
 	
-	// todo: maybe one hashset per node is overkill ?
-	HashSet<string> GetModuleSearchPaths(GlobalModuleMapNode node) {
-		if(node.search_paths != null)
-			return node.search_paths;
-		node.search_paths = new HashSet<string>();
-		node.search_paths.Add(Path.GetDirectoryName(node.entry.bmi_file));
+	// todo: use visitor colors ?
+	void ClearVisited(GlobalModuleMapNode node) {
+		if(!node.visited)
+			return;
+		node.visited = false;
+		foreach(GlobalModuleMapNode imported_node in node.imports_nodes)
+			ClearVisited(imported_node);
+	}
+	
+	// todo: should this be cached per node ?
+	string GetModuleReferences(GlobalModuleMapNode node) {
+		if(node.visited)
+			return "";
+		node.visited = true;
+		
+		string ret = node.entry.bmi_file != "" ? "/module:reference \"" + node.entry.bmi_file + "\" " : "";
 		foreach(GlobalModuleMapNode imported_node in node.imports_nodes) {
-			foreach(string path in GetModuleSearchPaths(imported_node)) {
-				node.search_paths.Add(path);
-			}
+			ret += GetModuleReferences(imported_node);
 		}
-		return node.search_paths;
+		return ret;
 	}
 	
 	bool Compile()
@@ -826,19 +849,23 @@ public class CppM_CL : Task
 				
 				//Log.LogMessage(MessageImportance.High, "building {0}", cl.Sources[0]);
 				//assume modules are already enabled and the standard is set to latest
-				foreach(string path in GetModuleSearchPaths(node)) {
-					cl.AdditionalOptions = "/module:search \"" + path + "\" " + cl.AdditionalOptions;
-				}
+				
+				ClearVisited(node);
+				cl.AdditionalOptions = GetModuleReferences(node) + cl.AdditionalOptions;
+				
 				if(node.entry.exported_module != "") {
 					// AdditionalOptions already contains /modules:stdifcdir
 					cl.AdditionalOptions = "/module:interface /module:output \"" + node.entry.bmi_file + "\" " + cl.AdditionalOptions;
 				}
 
+				// we don't record the added options in the tracked command because
+				// we need to compare it later to the options before preprocessing
+				string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
 				prefix_id++;
 				string prefix = prefix_id.ToString();
 				StartTracking(cl.TrackerLogDirectory + "src\\", prefix);
 				bool success = cl.Execute();
-				EndTracking(success, cl.TrackerLogDirectory + "src\\", prefix, node.entry.source_file, GetCommandFromCL(cl));
+				EndTracking(success, cl.TrackerLogDirectory + "src\\", prefix, node.entry.source_file, tracking_command);
 				if(!success)
 					return false;
 				
@@ -861,9 +888,11 @@ public class CppM_CL : Task
 					}
 				}
 				
-				node.map.ood_file_list.Remove(node.ood_list_node);
-				node.map.ood_list_changed = true;
-				node.ood_list_node = null;
+				if(node.ood_list_node != null) {
+					node.map.ood_file_list.Remove(node.ood_list_node);
+					node.map.ood_list_changed = true;
+					node.ood_list_node = null;
+				}
 			} else {
 				// touch the outputs
 				Log.LogMessage(MessageImportance.High, "touching output files for {0}", node.entry.source_file);
