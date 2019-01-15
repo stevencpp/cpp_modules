@@ -11,6 +11,7 @@
 		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
 		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
+		<CppM_LegacyHeader_Path>$(CppM_IntDir_FullPath)</CppM_LegacyHeader_Path>
 	</PropertyGroup>
 	
 	<ItemGroup>
@@ -64,103 +65,17 @@
 				<BuildingInIDE>$(BuildingInsideVisualStudio)</BuildingInIDE>
 				<!--<Sources>@(ClCompile)</Sources>!-->
 				<Sources>%(ClCompile.FullPath)</Sources>
-				<AdditionalIncludeDirectories>%(ClCompile.AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-				<AdditionalOptions>%(ClCompile.AdditionalOptions)</AdditionalOptions>
-				<AdditionalUsingDirectories>%(ClCompile.AdditionalUsingDirectories)</AdditionalUsingDirectories>
-				<AssemblerListingLocation>%(ClCompile.AssemblerListingLocation)</AssemblerListingLocation>
-				<AssemblerOutput>%(ClCompile.AssemblerOutput)</AssemblerOutput>
-				<BasicRuntimeChecks>%(ClCompile.BasicRuntimeChecks)</BasicRuntimeChecks>
-				<BrowseInformation>%(ClCompile.BrowseInformation)</BrowseInformation>
-				<BrowseInformationFile>%(ClCompile.BrowseInformationFile)</BrowseInformationFile>
-				<BufferSecurityCheck>%(ClCompile.BufferSecurityCheck)</BufferSecurityCheck>
-				<CallingConvention>%(ClCompile.CallingConvention)</CallingConvention>
-				<ControlFlowGuard>%(ClCompile.ControlFlowGuard)</ControlFlowGuard>
-				<CompileAsManaged>%(ClCompile.CompileAsManaged)</CompileAsManaged>
-				<CompileAsWinRT>%(ClCompile.CompileAsWinRT)</CompileAsWinRT>
-				<CompileAs>%(ClCompile.CompileAs)</CompileAs>
-				<ConformanceMode>%(ClCompile.ConformanceMode)</ConformanceMode>
-				<DebugInformationFormat>%(ClCompile.DebugInformationFormat)</DebugInformationFormat>
-				<DiagnosticsFormat>%(ClCompile.DiagnosticsFormat)</DiagnosticsFormat>
-				<DisableLanguageExtensions>%(ClCompile.DisableLanguageExtensions)</DisableLanguageExtensions>
-				<DisableSpecificWarnings>%(ClCompile.DisableSpecificWarnings)</DisableSpecificWarnings>
-				<EnableEnhancedInstructionSet>%(ClCompile.EnableEnhancedInstructionSet)</EnableEnhancedInstructionSet>
-				<EnableFiberSafeOptimizations>%(ClCompile.EnableFiberSafeOptimizations)</EnableFiberSafeOptimizations>
-				<EnableModules>%(ClCompile.EnableModules)</EnableModules>
-				<EnableParallelCodeGeneration>%(ClCompile.EnableParallelCodeGeneration)</EnableParallelCodeGeneration>
-				<EnablePREfast>%(ClCompile.EnablePREfast)</EnablePREfast>
-				<EnforceTypeConversionRules>%(ClCompile.EnforceTypeConversionRules)</EnforceTypeConversionRules>
-				<ErrorReporting>%(ClCompile.ErrorReporting)</ErrorReporting>
-				<ExceptionHandling>%(ClCompile.ExceptionHandling)</ExceptionHandling>
 				<ExcludedInputPaths>$(ExcludePath)</ExcludedInputPaths>
-				<ExpandAttributedSource>%(ClCompile.ExpandAttributedSource)</ExpandAttributedSource>
-				<FavorSizeOrSpeed>%(ClCompile.FavorSizeOrSpeed)</FavorSizeOrSpeed>
-				<FloatingPointExceptions>%(ClCompile.FloatingPointExceptions)</FloatingPointExceptions>
-				<FloatingPointModel>%(ClCompile.FloatingPointModel)</FloatingPointModel>
-				<ForceConformanceInForLoopScope>%(ClCompile.ForceConformanceInForLoopScope)</ForceConformanceInForLoopScope>
-				<ForcedIncludeFiles>%(ClCompile.ForcedIncludeFiles)</ForcedIncludeFiles>
-				<ForcedUsingFiles>%(ClCompile.ForcedUsingFiles)</ForcedUsingFiles>
-				<FunctionLevelLinking>%(ClCompile.FunctionLevelLinking)</FunctionLevelLinking>
-				<GenerateXMLDocumentationFiles>%(ClCompile.GenerateXMLDocumentationFiles)</GenerateXMLDocumentationFiles>
-				<IgnoreStandardIncludePath>%(ClCompile.IgnoreStandardIncludePath)</IgnoreStandardIncludePath>
-				<InlineFunctionExpansion>%(ClCompile.InlineFunctionExpansion)</InlineFunctionExpansion>
-				<IntrinsicFunctions>%(ClCompile.IntrinsicFunctions)</IntrinsicFunctions>
-				<LanguageStandard>%(ClCompile.LanguageStandard)</LanguageStandard>
-				<MinimalRebuild>%(ClCompile.MinimalRebuild)</MinimalRebuild>
-				<MultiProcessorCompilation>%(ClCompile.MultiProcessorCompilation)</MultiProcessorCompilation>
-				<ObjectFileName>%(ClCompile.ObjectFileName)</ObjectFileName>
-				<OmitDefaultLibName>%(ClCompile.OmitDefaultLibName)</OmitDefaultLibName>
-				<OmitFramePointers>%(ClCompile.OmitFramePointers)</OmitFramePointers>
-				<OpenMPSupport>%(ClCompile.OpenMPSupport)</OpenMPSupport>
-				<Optimization>%(ClCompile.Optimization)</Optimization>
-				<PrecompiledHeader>%(ClCompile.PrecompiledHeader)</PrecompiledHeader>
-				<PrecompiledHeaderFile>%(ClCompile.PrecompiledHeaderFile)</PrecompiledHeaderFile>
-				<PrecompiledHeaderOutputFile>%(ClCompile.PrecompiledHeaderOutputFile)</PrecompiledHeaderOutputFile>
-				<PREfastAdditionalOptions>%(ClCompile.PREfastAdditionalOptions)</PREfastAdditionalOptions>
-				<PREfastAdditionalPlugins>%(ClCompile.PREfastAdditionalPlugins)</PREfastAdditionalPlugins>
-				<PREfastLog>%(ClCompile.PREfastLog)</PREfastLog>
-				<PreprocessKeepComments>%(ClCompile.PreprocessKeepComments)</PreprocessKeepComments>
-				<PreprocessorDefinitions>%(ClCompile.PreprocessorDefinitions)</PreprocessorDefinitions>
-				<PreprocessSuppressLineNumbers>%(ClCompile.PreprocessSuppressLineNumbers)</PreprocessSuppressLineNumbers>
-				<PreprocessToFile>%(ClCompile.PreprocessToFile)</PreprocessToFile>
-				<ProcessorNumber>%(ClCompile.ProcessorNumber)</ProcessorNumber>
-				<ProgramDataBaseFileName>%(ClCompile.ProgramDataBaseFileName)</ProgramDataBaseFileName>
-				<RemoveUnreferencedCodeData>%(ClCompile.RemoveUnreferencedCodeData)</RemoveUnreferencedCodeData>
-				<RuntimeLibrary>%(ClCompile.RuntimeLibrary)</RuntimeLibrary>
-				<RuntimeTypeInfo>%(ClCompile.RuntimeTypeInfo)</RuntimeTypeInfo>
-				<SDLCheck>%(ClCompile.SDLCheck)</SDLCheck>
-				<ShowIncludes>%(ClCompile.ShowIncludes)</ShowIncludes>
-				<WarningVersion>%(ClCompile.WarningVersion)</WarningVersion>
-				<SmallerTypeCheck>%(ClCompile.SmallerTypeCheck)</SmallerTypeCheck>
-				<SpectreMitigation>%(ClCompile.SpectreMitigation)</SpectreMitigation>
-				<StringPooling>%(ClCompile.StringPooling)</StringPooling>
-				<StructMemberAlignment>%(ClCompile.StructMemberAlignment)</StructMemberAlignment>
-				<SupportJustMyCode>%(ClCompile.SupportJustMyCode)</SupportJustMyCode>
-				<SuppressStartupBanner>%(ClCompile.SuppressStartupBanner)</SuppressStartupBanner>
-				<TreatSpecificWarningsAsErrors>%(ClCompile.TreatSpecificWarningsAsErrors)</TreatSpecificWarningsAsErrors>
-				<TreatWarningAsError>%(ClCompile.TreatWarningAsError)</TreatWarningAsError>
-				<TreatWChar_tAsBuiltInType>%(ClCompile.TreatWChar_tAsBuiltInType)</TreatWChar_tAsBuiltInType>
-				<UndefineAllPreprocessorDefinitions>%(ClCompile.UndefineAllPreprocessorDefinitions)</UndefineAllPreprocessorDefinitions>
-				<UndefinePreprocessorDefinitions>%(ClCompile.UndefinePreprocessorDefinitions)</UndefinePreprocessorDefinitions>
-				<UseFullPaths>%(ClCompile.UseFullPaths)</UseFullPaths>
-				<UseUnicodeForAssemblerListing>%(ClCompile.UseUnicodeForAssemblerListing)</UseUnicodeForAssemblerListing>
-				<WarningLevel>%(ClCompile.WarningLevel)</WarningLevel>
-				<WholeProgramOptimization>%(ClCompile.WholeProgramOptimization)</WholeProgramOptimization>
-				<WinRTNoStdLib>%(ClCompile.WinRTNoStdLib)</WinRTNoStdLib>
-				<XMLDocumentationFileName>%(ClCompile.XMLDocumentationFileName)</XMLDocumentationFileName>
-				<CreateHotpatchableImage>%(CLCompile.CreateHotpatchableImage)</CreateHotpatchableImage>
-				<TrackerLogDirectory>%(ClCompile.TrackerLogDirectory)</TrackerLogDirectory>
 				<TLogReadFiles>@(CLTLogReadFiles)</TLogReadFiles>
 				<TLogWriteFiles>@(CLTLogWriteFiles)</TLogWriteFiles>
 				<ToolExe>$(CLToolExe)</ToolExe>
 				<ToolPath>$(CLToolPath)</ToolPath>
 				<TrackFileAccess>$(TrackFileAccess)</TrackFileAccess>
-				<MinimalRebuildFromTracking>%(ClCompile.MinimalRebuildFromTracking)</MinimalRebuildFromTracking>
 				<ToolArchitecture>$(CLToolArchitecture)</ToolArchitecture>
 				<TrackerFrameworkPath>$(CLTrackerFrameworkPath)</TrackerFrameworkPath>
 				<TrackerSdkPath>$(CLTrackerSdkPath)</TrackerSdkPath>
 				<TrackedInputFilesToIgnore>@(ClNoDependencies)</TrackedInputFilesToIgnore>
 				<DeleteOutputOnExecute>$(CLDeleteOutputOnExecute)</DeleteOutputOnExecute>
-				<AcceptableNonZeroExitCodes>%(ClCompile.AcceptableNonZeroExitCodes)</AcceptableNonZeroExitCodes>
 				<YieldDuringToolExecution>$(ClYieldDuringToolExecution)</YieldDuringToolExecution>
 			</CppM_CL_Input_All>
 		</ItemGroup>
@@ -213,5 +128,12 @@
 		</ItemGroup>
 		<Delete Files="@(CppM_To_Delete)" />
 	</Target>
+
+	<ItemGroup>
+		<ClInclude Remove="$(CppM_Legacy_Headers)" />
+		<ClCompile Include="$(CppM_Legacy_Headers)">
+			<CppM_Legacy_Header>true</CppM_Legacy_Header>
+		</ClCompile>
+	</ItemGroup>
 	
 </Project>

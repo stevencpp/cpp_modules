@@ -28,6 +28,10 @@ add_library(C STATIC
 	C4.cpp
 )
 
+target_cpp_legacy_headers(C
+	C5.h
+)
+
 target_link_libraries(C D)
 
 add_library(D STATIC
@@ -35,6 +39,11 @@ add_library(D STATIC
 	D2.cpp
 	D3.cpp
 	D4.cpp
+)
+
+target_cpp_legacy_headers(D
+	D5.h
+	D6.h
 )
 
 set_property(TARGET A B C D PROPERTY CXX_STANDARD 17)

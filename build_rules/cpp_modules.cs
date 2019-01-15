@@ -53,6 +53,47 @@ public class CppM_CL : Task
 	ITaskItem[] CL_Input_OutOfDate_Src = null;
 	
 	String CurrentProject = "";
+	ProjectCollection project_collection = null;
+	
+	// load all transitively referenced projects
+	// todo: keep this in memory somehow when building a project hierarchy
+	bool CreateProjectCollection() {
+		CurrentProject = CurrentProjectHolder[0].GetMetadata("FullPath");
+		
+		project_collection = new ProjectCollection( new Dictionary<String, String> {
+			{ "SolutionDir", Path.GetDirectoryName(SolutionFilePath) + "\\" },
+			{ "Configuration", Configuration }, { "Platform", Platform },
+			{ "SolutionPath", SolutionFilePath } // just for completeness
+		});
+		
+		var project_queue = new Queue<string>();
+		var loaded_projects = new HashSet<string>();
+		project_queue.Enqueue(CurrentProject);
+		loaded_projects.Add(CurrentProject);
+		
+		while(project_queue.Count > 0) {
+			var project_file = project_queue.Dequeue();
+			var project = project_collection.LoadProject(project_file);
+			
+			foreach(ProjectItem reference in project.GetItems("ProjectReference")) {
+				string path = reference.GetMetadataValue("FullPath");
+				if(loaded_projects.Add(path))
+					project_queue.Enqueue(path);
+			}
+		}
+		return true;
+	}
+	
+	IEnumerable<string> legacy_header_paths = null;
+	
+	// note: part of the workaround until we get a proper legacy header preprocessor
+	// this should instead get the set of legacy headers, not paths
+	bool GetLegacyHeaderPaths()
+	{
+		legacy_header_paths = project_collection.LoadedProjects.Select(project => 
+			project.GetPropertyValue("CppM_LegacyHeader_Path"));
+		return true;
+	}
 	
 	string NormalizeFilePath(string file_path) {
 		return Path.GetFullPath(file_path).ToUpper();
@@ -69,8 +110,8 @@ public class CppM_CL : Task
 	{
 		FileTracker.WriteContextTLogs(directory, unique_prefix);
 		FileTracker.StopTrackingAndCleanup();
+		File.WriteAllLines(directory + unique_prefix + ".command.1.tlog", new string[] { "#", command });
 		if(success) {
-			File.WriteAllLines(directory + unique_prefix + ".command.1.tlog", new string[] { "#", command });
 			File.AppendAllLines(directory + "prefixes.txt", new string[] { unique_prefix + " " + NormalizeFilePath(src_file) } );
 		}
 	}
@@ -144,6 +185,7 @@ public class CppM_CL : Task
 				string prefix = line.Substring(0, spc);
 				string src_file = line.Substring(spc+1);
 				TLogSet tlog_set = null;
+				// ignore prefixes for sources no longer in the project
 				if(!src_to_tlog_set.TryGetValue(src_file, out tlog_set))
 					continue;
 				prefix_to_tlog_set.Add(prefix, tlog_set);
@@ -231,7 +273,15 @@ public class CppM_CL : Task
 			ood_item.SetMetadata("write", String.Join(";", tlog_set.outputs));
 			ood_item.SetMetadata("read", String.Join(";", tlog_set.inputs));
 			// pass the current command instead of the previous command to GetOutOfDateItems
-			ood_item.SetMetadata("command", GetCommandFromItem(item));
+			//ood_item.SetMetadata("command", GetCommandFromItem(item));
+			var dict = Get_CL_PropertyDictionary(item);
+			AppendToDictionaryValue(dict, "AdditionalIncludeDirectories", 
+				String.Join(";", legacy_header_paths), ";");
+			string cmd = GetCommandFromPropertyDictionary(dict);
+			/*if(tlog_set.command.Count > 0 && cmd != tlog_set.command[0]) {
+				Log.LogMessage(MessageImportance.High, "'{0}' != '{1}'", cmd, tlog_set.command[0]);
+			}*/
+			ood_item.SetMetadata("command", cmd);
 			get_ood_sources.Add(ood_item);
 		}
 		
@@ -328,19 +378,11 @@ public class CppM_CL : Task
 		return value.ToString();
 	}
 	
-	bool SetPropertyFromMetadata(object obj, String prop, ITaskItem item, String meta = null) {
-		if(meta == null) meta = prop;
-		string meta_value = item.GetMetadata(meta);
-		if(meta_value == "") {
-			//Log.LogMessage(MessageImportance.High, "	metadata " + meta + " not found in ITaskItem");
-			return true;
-		}
-		return SetPropertyFromString(obj, prop, meta_value);
-	}
-	
 	// replaced ' +(\w+) +="([^"]+)"\r\n' with '"\1", '
 	// changed BuildingInIDE to BuildingInIde, commented TrackFileAccess, MinimalRebuildFromTracking and AcceptableNonZeroExitCodes
 	string[] props = { "BuildingInIde", "Sources", "AdditionalIncludeDirectories", "AdditionalOptions", "AdditionalUsingDirectories", "AssemblerListingLocation", "AssemblerOutput", "BasicRuntimeChecks", "BrowseInformation", "BrowseInformationFile", "BufferSecurityCheck", "CallingConvention", "ControlFlowGuard", "CompileAsManaged", "CompileAsWinRT", "CompileAs", "ConformanceMode", "DebugInformationFormat", "DiagnosticsFormat", "DisableLanguageExtensions", "DisableSpecificWarnings", "EnableEnhancedInstructionSet", "EnableFiberSafeOptimizations", "EnableModules", "EnableParallelCodeGeneration", "EnablePREfast", "EnforceTypeConversionRules", "ErrorReporting", "ExceptionHandling", "ExcludedInputPaths", "ExpandAttributedSource", "FavorSizeOrSpeed", "FloatingPointExceptions", "FloatingPointModel", "ForceConformanceInForLoopScope", "ForcedIncludeFiles", "ForcedUsingFiles", "FunctionLevelLinking", "GenerateXMLDocumentationFiles", "IgnoreStandardIncludePath", "InlineFunctionExpansion", "IntrinsicFunctions", "LanguageStandard", "MinimalRebuild", "MultiProcessorCompilation", "ObjectFileName", "OmitDefaultLibName", "OmitFramePointers", "OpenMPSupport", "Optimization", "PrecompiledHeader", "PrecompiledHeaderFile", "PrecompiledHeaderOutputFile", "PREfastAdditionalOptions", "PREfastAdditionalPlugins", "PREfastLog", "PreprocessKeepComments", "PreprocessorDefinitions", "PreprocessSuppressLineNumbers", "PreprocessToFile", "ProcessorNumber", "ProgramDataBaseFileName", "RemoveUnreferencedCodeData", "RuntimeLibrary", "RuntimeTypeInfo", "SDLCheck", "ShowIncludes", "WarningVersion", "SmallerTypeCheck", "SpectreMitigation", "StringPooling", "StructMemberAlignment", "SupportJustMyCode", "SuppressStartupBanner", "TreatSpecificWarningsAsErrors", "TreatWarningAsError", "TreatWChar_tAsBuiltInType", "UndefineAllPreprocessorDefinitions", "UndefinePreprocessorDefinitions", "UseFullPaths", "UseUnicodeForAssemblerListing", "WarningLevel", "WholeProgramOptimization", "WinRTNoStdLib", "XMLDocumentationFileName", "CreateHotpatchableImage", "TrackerLogDirectory", "TLogReadFiles", "TLogWriteFiles", "ToolExe", "ToolPath", /*"TrackFileAccess", "MinimalRebuildFromTracking",*/ "ToolArchitecture", "TrackerFrameworkPath", "TrackerSdkPath", "TrackedInputFilesToIgnore", "DeleteOutputOnExecute", /*"AcceptableNonZeroExitCodes",*/ "YieldDuringToolExecution" };
+	// we should not recompile the files if these properties change:
+	string[] props_not_for_cmd = { "BuildingInIde", "ErrorReporting" };
 	
 	Dictionary<string, string> Get_CL_PropertyDictionary(ITaskItem item)
 	{
@@ -351,18 +393,6 @@ public class CppM_CL : Task
 				dict.Add(prop, meta_value);
 		}
 		return dict;
-	}
-	
-	CL GetCL(ITaskItem cl_item) {
-		CL cl = new CL {
-			BuildEngine = this.BuildEngine
-		};
-		
-		foreach(string prop in props) {
-			if(!SetPropertyFromMetadata(cl, prop, cl_item)) return null;
-		}
-		
-		return cl;
 	}
 	
 	CL GetCL_From_PropertyDictionary(Dictionary<string, string> dict) {
@@ -376,7 +406,7 @@ public class CppM_CL : Task
 	}
 	
 	string GetCommandFrom(System.Func<string, string> prop_to_value_func) {
-		return String.Join(";", props.Select(prop => prop + "='" + prop_to_value_func(prop) + "'"));
+		return String.Join(";", props.Except(props_not_for_cmd).Select(prop => prop + "='" + prop_to_value_func(prop) + "'"));
 	}
 	
 	string GetCommandFromItem(ITaskItem item) {
@@ -391,17 +421,32 @@ public class CppM_CL : Task
 		});
 	}
 	
-	String GetPreprocessedFile(ITaskItem item, string unique_prefix, string tracking_command) {
-		CL cl = GetCL(item);
+	String GetPreprocessedFile(ITaskItem item, Dictionary<string, string> property_dictionary, 
+		string unique_prefix, string tracking_command, 
+		bool is_legacy_header, IEnumerable<string> legacy_header_paths)
+	{
+		string src_file = item.GetMetadata("FullPath");
+		CL cl = GetCL_From_PropertyDictionary(property_dictionary);
 		if(cl == null)
 			return null;
-		cl.PreprocessToFile = true;
-		string src_file = item.GetMetadata("FullPath");
+		if(is_legacy_header) {
+			// create a wrapper that allows the legacy header to be imported along with its macros
+			string src_file_name = Path.GetFileNameWithoutExtension(src_file);
+			string additional_options = "/module:name " + src_file_name.ToUpper() +
+				" /module:exportActiveMacros /module:wrapper \"" + BMI_Path + src_file_name + ".lh\" ";
+			cl.AdditionalOptions = additional_options + cl.AdditionalOptions;
+		} else {
+			cl.PreprocessToFile = true;
+		}
 		StartTracking(cl.TrackerLogDirectory + "pp\\", unique_prefix);
 		bool success = cl.Execute();
 		EndTracking(success, cl.TrackerLogDirectory + "pp\\", unique_prefix, src_file, tracking_command);
 		if(!success)
 			return null;
+		// todo: if the file depends on a legacy header, it only reads the .lh (or, eventually the bmi of the header)
+		// so we need to add the header to its list of dependencies
+		if(is_legacy_header)
+			return "";
 		string pre_file = item.GetMetadata("ObjectFileName").ToString() + item.GetMetadata("Filename").ToString() + ".i";
 		return File.ReadAllText(pre_file);
 	}
@@ -419,6 +464,7 @@ public class CppM_CL : Task
 	{
 		public string bmi_file = "";
 		public string exported_module = "";
+		public bool legacy_header = false;
 		public List<string> imported_modules = new List<string>();
 		public List<string> legacy_imports = new List<string>();
 		public List<string> included_headers = new List<string>();
@@ -427,6 +473,7 @@ public class CppM_CL : Task
 		public void assign(ModuleDefinition def) {
 			bmi_file = def.bmi_file;
 			exported_module = def.exported_module;
+			legacy_header = def.legacy_header;
 			imported_modules = def.imported_modules;
 			legacy_imports = def.legacy_imports;
 			included_headers = def.included_headers;
@@ -446,14 +493,6 @@ public class CppM_CL : Task
 			}
 		}
 		public List<Entry> entries = new List<Entry>();
-	}
-	
-	ProjectCollection CreateProjectCollection() {
-		return new ProjectCollection( new Dictionary<String, String> {
-			{ "SolutionDir", Path.GetDirectoryName(SolutionFilePath) + "\\" },
-			{ "Configuration", Configuration }, { "Platform", Platform },
-			{ "SolutionPath", SolutionFilePath } // just for completeness
-		});
 	}
 	
 	//JavaScriptSerializer serializer = new JavaScriptSerializer();
@@ -496,6 +535,19 @@ public class CppM_CL : Task
 		}
 		return src_to_entry;
 	}
+	
+	delegate bool PreProcessFunc(ITaskItem item);
+	
+	void AppendToDictionaryValue(Dictionary<string, string> dict, string key, string value_to_append, string separator) {
+		string value = null;
+		if(dict.TryGetValue(key, out value)) {
+			if(value != "") value += separator;
+			value += value_to_append;
+			dict[key] = value;
+		} else {
+			dict.Add(key, value_to_append);
+		}
+	}
 
 	bool PreProcess()
 	{
@@ -517,14 +569,12 @@ public class CppM_CL : Task
 		
 		ModuleMap module_map = new ModuleMap();
 		
-		var ood_files = new HashSet<string>();
-		foreach(ITaskItem item in CL_Input_OutOfDate_PP) {
-			ood_files.Add(NormalizeFilePath(item.GetMetadata("FullPath")));
-		}
+		var ood_files = CL_Input_OutOfDate_PP.Select(item => 
+			NormalizeFilePath(item.GetMetadata("FullPath"))).ToHashSet();
 		
 		int prefix_id = 0;
 		
-		foreach(ITaskItem item in CL_Input_All) {
+		PreProcessFunc pp_func = (item) => {
 			string src_file = NormalizeFilePath(item.GetMetadata("Sources"));
 			string def_file = item.GetMetadata("CppM_ModuleDefinitionFile").ToString();
 			
@@ -546,18 +596,33 @@ public class CppM_CL : Task
 					cl_params = Get_CL_PropertyDictionary(item),
 				};
 				
+				module_def.legacy_header = (item.GetMetadata("CppM_Legacy_Header") == "true");
+				// todo: there should be a modules specific option to pass the set of legacy headers
+				AppendToDictionaryValue(module_def.cl_params, "AdditionalIncludeDirectories", 
+					String.Join(";", legacy_header_paths), ";");
+				
 				string tracking_command = GetCommandFromPropertyDictionary(module_def.cl_params);
 				prefix_id++;
-				String preprocessed = GetPreprocessedFile(item, prefix_id.ToString(), tracking_command);
+				String preprocessed = GetPreprocessedFile(item, module_def.cl_params,
+					prefix_id.ToString(), tracking_command, 
+					module_def.legacy_header, legacy_header_paths);
 				if(preprocessed == null)
 					return false;
 				
 				//preprocessed = raw_string_pattern.Replace(preprocessed, "");
 				preprocessed = string_pattern.Replace(preprocessed, "");
 				
-				Match m = export_pattern.Match(preprocessed);
-				if(m.Success) {
-					module_def.exported_module = m.Groups[1].ToString();
+				Match m = null;
+				if(module_def.legacy_header) {
+					module_def.exported_module = Path.GetFileNameWithoutExtension(src_file);
+				} else {
+					m = export_pattern.Match(preprocessed);
+					if(m.Success) {
+						module_def.exported_module = m.Groups[1].ToString();
+					}
+				}
+				
+				if(module_def.exported_module != "") {
 					module_def.bmi_file = BMI_Path + module_def.exported_module + BMI_Ext;
 				}
 				
@@ -574,7 +639,17 @@ public class CppM_CL : Task
 				entry_to_add = ModuleMap.Entry.create(src_file, module_def);
 			}
 			module_map.entries.Add(entry_to_add);
-		}
+			return true;
+		};
+		
+		// the legacy headers might export macros that affect the rest of the preprocessing
+		foreach(ITaskItem item in CL_Input_All)
+			if(item.GetMetadata("CppM_Legacy_Header") == "true" && !pp_func(item))
+				return false;
+		
+		foreach(ITaskItem item in CL_Input_All)
+			if(item.GetMetadata("CppM_Legacy_Header") != "true" && !pp_func(item))
+				return false;
 		
 		SerializeToFile(module_map, ModuleMapFile);
 		//Log.LogMessage(MessageImportance.High, "test: {0}", serializer.Serialize(module_map));
@@ -604,11 +679,10 @@ public class CppM_CL : Task
 		public bool need_bmi = false;
 		public bool subtree_has_leaves = false;
 		public List<GlobalModuleMapNode> imports_nodes = new List<GlobalModuleMapNode>();
-		//public Task compile_task = null;
+		public List<GlobalModuleMapNode> imported_by_nodes = new List<GlobalModuleMapNode>();
 		public int remaining_imports_to_check = 0;
 		public bool imports_changed = false;
 		public bool build_finished = false;
-		public List<GlobalModuleMapNode> imported_by_nodes = new List<GlobalModuleMapNode>();
 		public LinkedListNode<string> ood_list_node = null;
 	}
 	
@@ -638,25 +712,13 @@ public class CppM_CL : Task
 				return false;
 		}
 		
-		// todo: try to keep the while project tree and the global module map in memory 
-		// rather than reloading the subtrees over and over again during a build
-		
-		var project_collection = CreateProjectCollection();
-		var project_queue = new Queue<string>();
-		var loaded_projects = new HashSet<string>();
-		project_queue.Enqueue(CurrentProject);
-		loaded_projects.Add(CurrentProject);
 		var project_source_to_node = new Dictionary<string, GlobalModuleMapNode>();
 		
-		while(project_queue.Count > 0) {
-			var project_file = project_queue.Dequeue();
-			var project = project_collection.LoadProject(project_file);
-			
-			foreach(ProjectItem reference in project.GetItems("ProjectReference")) {
-				string path = reference.GetMetadataValue("FullPath");
-				if(loaded_projects.Add(path))
-					project_queue.Enqueue(path);
-			}
+		// todo: try to keep the while project tree and the global module map in memory 
+		// rather than reloading the subtrees over and over again during a build
+		// todo: maybe parallelize this ?
+		foreach(Project project in project_collection.LoadedProjects) {
+			var project_file = project.FullPath;
 			
 			string module_map_file = project.GetPropertyValue("CppM_ModuleMapFile");
 			// not an error if modules are not enabled in the project
@@ -795,6 +857,84 @@ public class CppM_CL : Task
 		return ret;
 	}
 	
+	bool Compile(GlobalModuleMapNode node, int prefix_id)
+	{
+		var cl = GetCL_From_PropertyDictionary(node.entry.cl_params);
+		
+		byte[] old_hash = null;
+		if(node.entry.exported_module != "") {
+			old_hash = GetBMI_Hash(node.entry.bmi_file);
+		}
+		
+		if(node.need_bmi) {
+			//todo: only get the bmi, don't do a full compile ?
+			//or maybe get the bmi, queue nodes that depend on it, then continue with the full compile ?
+		}
+		
+		//Log.LogMessage(MessageImportance.High, "building {0}", cl.Sources[0]);
+		
+		ClearVisited(node);
+		string additional_options = GetModuleReferences(node);
+		if(node.entry.exported_module != "") {
+			if(node.entry.legacy_header) {
+				additional_options += "/module:export /module:name " + node.entry.exported_module + " ";
+			} else {
+				additional_options += "/module:interface ";
+			}
+			additional_options += "/module:output \"" + node.entry.bmi_file + "\" ";
+		}
+		// AdditionalOptions already contains /modules:stdifcdir
+		cl.AdditionalOptions = additional_options + cl.AdditionalOptions;
+		//note: we assume modules are already enabled and the standard is set to latest
+		//Log.LogMessage(MessageImportance.High, "additional options for '{0}' are: {1}", node.entry.source_file, additional_options);
+
+		// we don't record the added options in the tracked command because
+		// we need to compare it later to the options before preprocessing
+		string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
+		string prefix = prefix_id.ToString();
+		StartTracking(cl.TrackerLogDirectory + "src\\", prefix);
+		bool success = cl.Execute();
+		EndTracking(success, cl.TrackerLogDirectory + "src\\", prefix, node.entry.source_file, tracking_command);
+		if(!success)
+			return false;
+		
+		if(node.entry.exported_module != "") {
+			byte[] new_hash = GetBMI_Hash(node.entry.bmi_file);
+			if(new_hash == null) {
+				Log.LogMessage(MessageImportance.High, "ERROR: bmi file {0} not generated for source file {1}",
+					node.entry.bmi_file, node.entry.source_file);
+				return false;
+			}
+			bool bmi_changed = old_hash == null || !old_hash.SequenceEqual(new_hash);
+			
+			if(bmi_changed) {
+				// assume imported_by only contains edges in the right subgraph
+				foreach(GlobalModuleMapNode imported_by in node.imported_by_nodes) {
+					imported_by.imports_changed = true;
+				}
+			} else {
+				Log.LogMessage(MessageImportance.High, "bmi did not change for {0}", node.entry.source_file);
+			}
+		}
+		
+		if(node.ood_list_node != null) {
+			node.map.ood_file_list.Remove(node.ood_list_node);
+			node.map.ood_list_changed = true;
+			node.ood_list_node = null;
+		}
+
+		return true;
+	}
+	
+	bool TouchOutputs(GlobalModuleMapNode node)
+	{
+		Log.LogMessage(MessageImportance.High, "touching output files for {0}", node.entry.source_file);
+		foreach(string output_file in src_to_tlog_set_src[node.entry.source_file].outputs) {
+			File.SetLastWriteTimeUtc(output_file, System.DateTime.UtcNow);
+		}
+		return true;
+	}
+	
 	bool Compile()
 	{
 		Log.LogMessage(MessageImportance.High, "CppM: Compile");
@@ -827,78 +967,18 @@ public class CppM_CL : Task
 			return false;
 		}
 
-		int prefix_id = 0;
+		int prefix_id = 1;
 		
-		// todo: use a depth based concurrent priority queue to parallelize this
+		// todo: use a concurrent depth-based priority queue to parallelize this
 		
 		while(build_queue.Count > 0) {
 			var node = build_queue.Dequeue();
-			bool bmi_changed = false;
 			if(node.imports_changed || node.need_bmi || node.need_obj) {
-				var cl = GetCL_From_PropertyDictionary(node.entry.cl_params);
-				
-				byte[] old_hash = null;
-				if(node.entry.exported_module != "") {
-					old_hash = GetBMI_Hash(node.entry.bmi_file);
-				}
-				
-				if(node.need_bmi) {
-					//todo: only get the bmi, don't do a full compile ?
-					//or maybe get the bmi, queue nodes that depend on it, then continue with the full compile ?
-				}
-				
-				//Log.LogMessage(MessageImportance.High, "building {0}", cl.Sources[0]);
-				//assume modules are already enabled and the standard is set to latest
-				
-				ClearVisited(node);
-				cl.AdditionalOptions = GetModuleReferences(node) + cl.AdditionalOptions;
-				
-				if(node.entry.exported_module != "") {
-					// AdditionalOptions already contains /modules:stdifcdir
-					cl.AdditionalOptions = "/module:interface /module:output \"" + node.entry.bmi_file + "\" " + cl.AdditionalOptions;
-				}
-
-				// we don't record the added options in the tracked command because
-				// we need to compare it later to the options before preprocessing
-				string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
-				prefix_id++;
-				string prefix = prefix_id.ToString();
-				StartTracking(cl.TrackerLogDirectory + "src\\", prefix);
-				bool success = cl.Execute();
-				EndTracking(success, cl.TrackerLogDirectory + "src\\", prefix, node.entry.source_file, tracking_command);
-				if(!success)
+				if(!Compile(node, prefix_id++))
 					return false;
-				
-				if(node.entry.exported_module != "") {
-					byte[] new_hash = GetBMI_Hash(node.entry.bmi_file);
-					if(new_hash == null) {
-						Log.LogMessage(MessageImportance.High, "ERROR: bmi file {0} not generated for source file {1}",
-							node.entry.bmi_file, node.entry.source_file);
-						return false;
-					}
-					bmi_changed = old_hash == null || !old_hash.SequenceEqual(new_hash);
-					
-					if(bmi_changed) {
-						// assume imported_by only contains edges in the right subgraph
-						foreach(GlobalModuleMapNode imported_by in node.imported_by_nodes) {
-							imported_by.imports_changed = true;
-						}
-					} else {
-						Log.LogMessage(MessageImportance.High, "bmi did not change for {0}", node.entry.source_file);
-					}
-				}
-				
-				if(node.ood_list_node != null) {
-					node.map.ood_file_list.Remove(node.ood_list_node);
-					node.map.ood_list_changed = true;
-					node.ood_list_node = null;
-				}
 			} else {
-				// touch the outputs
-				Log.LogMessage(MessageImportance.High, "touching output files for {0}", node.entry.source_file);
-				foreach(string output_file in src_to_tlog_set_src[node.entry.source_file].outputs) {
-					File.SetLastWriteTimeUtc(output_file, System.DateTime.UtcNow);
-				}
+				if(!TouchOutputs(node))
+					return false;
 			}
 			node.build_finished = true; // just for the sanity check
 			
@@ -929,7 +1009,10 @@ public class CppM_CL : Task
 
 	public override bool Execute()
 	{
-		CurrentProject = CurrentProjectHolder[0].GetMetadata("FullPath");
-		return ReadUpdateTLogs_GetOOD() && PreProcess() && (PreProcess_Only == "true" || Compile());
+		return CreateProjectCollection() && 
+			GetLegacyHeaderPaths() &&
+			ReadUpdateTLogs_GetOOD() && 
+			PreProcess() &&
+			(PreProcess_Only == "true" || Compile());
 	}
 }
