@@ -12,6 +12,7 @@
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
 		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
 		<CppM_LegacyHeader_Path>$(CppM_IntDir_FullPath)</CppM_LegacyHeader_Path>
+		<CppM_LegacyModuleMapFile>$(CppM_IntDir_FullPath)legacy.modulemap</CppM_LegacyModuleMapFile>
 	</PropertyGroup>
 	
 	<ItemGroup>
@@ -29,10 +30,12 @@
 			<SolutionFilePath ParameterType="System.String" Required="true" />
 			<Configuration ParameterType="System.String" Required="true" />
 			<Platform ParameterType="System.String" Required="true" />
+			<PlatformToolset ParameterType="System.String" Required="true" />
 			<PreProcess_Only ParameterType="System.String" Required="true" />
 			<OutOfDate_File ParameterType="System.String" Required="true" />
 			<BMI_Path ParameterType="System.String" Required="true" />
 			<BMI_Ext ParameterType="System.String" Required="true" />
+			<Legacy_ModuleMapFile ParameterType="System.String" Required="true" />
 		</ParameterGroup>
 		<Task>
 			<!-- for the CL task !-->
@@ -103,10 +106,12 @@
 			SolutionFilePath="$(SolutionPath)"
 			Configuration="$(Configuration)"
 			Platform="$(Platform)"
+			PlatformToolset="$(PlatformToolset)"
 			PreProcess_Only="$(CppM_PreProcess_Only)"
 			OutOfDate_File="$(CppM_OutOfDate_File)"
 			BMI_Path="$(CppM_BMI_Path)"
 			BMI_Ext="$(CppM_BMI_Ext)"
+			Legacy_ModuleMapFile="$(CppM_LegacyModuleMapFile)"
 		/>
 		
 		<!-- CppM_StopBuild intentionally does not exist so that an error really stops 
@@ -135,5 +140,10 @@
 			<CppM_Legacy_Header>true</CppM_Legacy_Header>
 		</ClCompile>
 	</ItemGroup>
+	
+	<!-- without this VS sometimes fails notice that the project is out of date !-->
+	<Target Name="CppM_BuildState_Workaround" AfterTargets="Build">
+		<Delete Files="$(TLogLocation)$(ProjectName).lastbuildstate" /> 
+	</Target>
 	
 </Project>

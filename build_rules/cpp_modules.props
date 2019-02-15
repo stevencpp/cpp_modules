@@ -4,7 +4,7 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup>
     <ClCompile>
-      <EnableModules>true</EnableModules>
+      <EnableModules Condition="'$(PlatformToolset)'!='llvm'">true</EnableModules>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup />

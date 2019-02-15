@@ -27,6 +27,8 @@ using Directory = System.IO.Directory;
 using Regex = System.Text.RegularExpressions.Regex;
 using Match = System.Text.RegularExpressions.Match;
 
+using SHA256 = System.Security.Cryptography.SHA256;
+
 using System.Linq; // for Select, Where, SelectMany
 
 //using JavaScriptSerializer = System.Web.Script.Serialization.JavaScriptSerializer;
@@ -44,16 +46,22 @@ public class CppM_CL : Task
 	[Required] public String SolutionFilePath { get; set; }
 	[Required] public String Configuration { get; set; }
 	[Required] public String Platform { get; set; }
+	[Required] public String PlatformToolset { get; set; }
 	[Required] public String PreProcess_Only { get; set; }
 	[Required] public String OutOfDate_File { get; set; }
 	[Required] public String BMI_Path { get; set; }
 	[Required] public String BMI_Ext { get; set; }
+	[Required] public String Legacy_ModuleMapFile { get; set; }
 	
 	ITaskItem[] CL_Input_OutOfDate_PP = null;
 	ITaskItem[] CL_Input_OutOfDate_Src = null;
 	
 	String CurrentProject = "";
 	ProjectCollection project_collection = null;
+	
+	bool IsLLVM() {
+		return PlatformToolset.ToLower() == "llvm";
+	}
 	
 	// load all transitively referenced projects
 	// todo: keep this in memory somehow when building a project hierarchy
@@ -84,12 +92,27 @@ public class CppM_CL : Task
 		return true;
 	}
 	
+	string GetLegacyHeaderModuleName(string header_path) {
+		return Path.GetFileNameWithoutExtension(header_path).ToUpper();
+	}
+	
 	IEnumerable<string> legacy_header_paths = null;
 	
-	// note: part of the workaround until we get a proper legacy header preprocessor
-	// this should instead get the set of legacy headers, not paths
 	bool GetLegacyHeaderPaths()
 	{
+		var legacy_headers = project_collection.LoadedProjects.SelectMany(project =>
+			project.GetPropertyValue("CppM_Legacy_Headers").Split(new char[]{';'})
+		).ToHashSet().Where(h => h.Length > 0);
+		
+		if(IsLLVM()) {
+			var lines = legacy_headers.Select(legacy_header => 
+				"module " + GetLegacyHeaderModuleName(legacy_header) + 
+				" { header \"" + NormalizeFilePath(legacy_header) + "\" }"
+			).ToArray();
+			if(!File.Exists(Legacy_ModuleMapFile) || !lines.SequenceEqual(File.ReadAllLines(Legacy_ModuleMapFile)))
+				File.WriteAllLines(Legacy_ModuleMapFile, lines);
+		}
+		
 		legacy_header_paths = project_collection.LoadedProjects.Select(project => 
 			project.GetPropertyValue("CppM_LegacyHeader_Path"));
 		return true;
@@ -430,14 +453,20 @@ public class CppM_CL : Task
 		if(cl == null)
 			return null;
 		if(is_legacy_header) {
-			// create a wrapper that allows the legacy header to be imported along with its macros
 			string src_file_name = Path.GetFileNameWithoutExtension(src_file);
-			string additional_options = "/module:name " + src_file_name.ToUpper() +
-				" /module:exportActiveMacros /module:wrapper \"" + BMI_Path + src_file_name + ".lh\" ";
+			string additional_options = "";
+			if(IsLLVM()) {
+				cl.PreprocessToFile = true;
+			} else {
+				// create a wrapper that allows the legacy header to be imported along with its macros
+				additional_options = "/module:name " + src_file_name.ToUpper() +
+					" /module:exportActiveMacros /module:wrapper \"" + BMI_Path + src_file_name + ".lh\" ";
+			}
 			cl.AdditionalOptions = additional_options + cl.AdditionalOptions;
 		} else {
 			cl.PreprocessToFile = true;
 		}
+		if(IsLLVM()) Log.LogMessage(MessageImportance.High, "preprocessing {0}", src_file);
 		StartTracking(cl.TrackerLogDirectory + "pp\\", unique_prefix);
 		bool success = cl.Execute();
 		EndTracking(success, cl.TrackerLogDirectory + "pp\\", unique_prefix, src_file, tracking_command);
@@ -710,6 +739,7 @@ public class CppM_CL : Task
 			Log.LogMessage(MessageImportance.High, "preprocessing project subtree");
 			if(!build.Execute())
 				return false;
+			Log.LogMessage(MessageImportance.High, "compiling");
 		}
 		
 		var project_source_to_node = new Dictionary<string, GlobalModuleMapNode>();
@@ -774,12 +804,19 @@ public class CppM_CL : Task
 		return true;
 	}
 	
+	SHA256 sha256 = null;
+	
 	byte[] GetBMI_Hash(string bmi_file) {
 		try {
 			byte[] bytes = File.ReadAllBytes(bmi_file);
-			if(bytes.Length < (4+32))
-				throw new System.Exception("invalid bmi file structure for " + bmi_file);
-			return bytes.Skip(4).Take(32).ToArray();
+			if(!IsLLVM()) {
+				if(bytes.Length < (4+32))
+					throw new System.Exception("invalid bmi file structure for " + bmi_file);
+				return bytes.Skip(4).Take(32).ToArray();
+			} else {
+				if(sha256 == null) sha256 = SHA256.Create();
+				return sha256.ComputeHash(bytes);
+			}
 		} catch(System.IO.FileNotFoundException) {
 			return null;
 		}
@@ -845,20 +882,29 @@ public class CppM_CL : Task
 	}
 	
 	// todo: should this be cached per node ?
-	string GetModuleReferences(GlobalModuleMapNode node) {
+	string GetModuleReferences(GlobalModuleMapNode node, bool root) {
 		if(node.visited)
 			return "";
 		node.visited = true;
-		
-		string ret = node.entry.bmi_file != "" ? "/module:reference \"" + node.entry.bmi_file + "\" " : "";
+		string ret = "";
+		if(!root && node.entry.bmi_file != "") {
+			string prefix = !IsLLVM() ? "/module:reference \"" : "-Xclang \"-fmodule-file=";
+			ret = prefix + node.entry.bmi_file + "\" ";
+		}
 		foreach(GlobalModuleMapNode imported_node in node.imports_nodes) {
-			ret += GetModuleReferences(imported_node);
+			ret += GetModuleReferences(imported_node, false);
 		}
 		return ret;
 	}
 	
 	bool Compile(GlobalModuleMapNode node, int prefix_id)
 	{
+		// todo: this is a workaround for a crash on setting cl.ObjectFileName later
+		string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
+		string object_file_path = node.entry.cl_params["ObjectFileName"];
+		if(node.entry.exported_module != "" && IsLLVM()) {
+			node.entry.cl_params["ObjectFileName"] = node.entry.bmi_file;
+		}
 		var cl = GetCL_From_PropertyDictionary(node.entry.cl_params);
 		
 		byte[] old_hash = null;
@@ -874,29 +920,69 @@ public class CppM_CL : Task
 		//Log.LogMessage(MessageImportance.High, "building {0}", cl.Sources[0]);
 		
 		ClearVisited(node);
-		string additional_options = GetModuleReferences(node);
+		string additional_options = GetModuleReferences(node, true);
+		string llvm_module_prefix = "";
+		if(IsLLVM()) {
+			additional_options += "-Xclang -fmodules-ts -Xclang \"-fmodule-map-file=" + Legacy_ModuleMapFile + "\" ";
+		}
 		if(node.entry.exported_module != "") {
 			if(node.entry.legacy_header) {
-				additional_options += "/module:export /module:name " + node.entry.exported_module + " ";
+				if(!IsLLVM()) {
+					additional_options += "/module:export /module:name " + node.entry.exported_module + " ";
+				} else {
+					llvm_module_prefix = "-Xclang -emit-header-module ";
+					additional_options = llvm_module_prefix + additional_options + 
+						"-Xclang -fmodule-name=" + node.entry.exported_module + " ";
+				}
 			} else {
-				additional_options += "/module:interface ";
+				if(!IsLLVM()) {
+					additional_options += "/module:interface ";
+				} else {
+					llvm_module_prefix = "-Xclang -emit-module-interface ";
+					additional_options = llvm_module_prefix + additional_options;
+				}
 			}
-			additional_options += "/module:output \"" + node.entry.bmi_file + "\" ";
+			if(!IsLLVM()) {
+				additional_options += "/module:output \"" + node.entry.bmi_file + "\" ";
+			} else {
+				// todo: figure out why this crashes
+				//cl.ObjectFileName = node.entry.bmi_file; // crash :(
+			}
 		}
 		// AdditionalOptions already contains /modules:stdifcdir
 		cl.AdditionalOptions = additional_options + cl.AdditionalOptions;
 		//note: we assume modules are already enabled and the standard is set to latest
 		//Log.LogMessage(MessageImportance.High, "additional options for '{0}' are: {1}", node.entry.source_file, additional_options);
 
+		if(IsLLVM()) Log.LogMessage(MessageImportance.High, "compiling {0}", node.entry.source_file);
 		// we don't record the added options in the tracked command because
 		// we need to compare it later to the options before preprocessing
-		string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
+		//string tracking_command = GetCommandFromPropertyDictionary(node.entry.cl_params);
 		string prefix = prefix_id.ToString();
 		StartTracking(cl.TrackerLogDirectory + "src\\", prefix);
 		bool success = cl.Execute();
+		if(success && IsLLVM() && node.entry.exported_module != "") {
+			//cl.ObjectFileName = object_file_path; // crash :(
+			//cl.AdditionalOptions = cl.AdditionalOptions.Remove(0, llvm_module_prefix.Length);
+			additional_options = additional_options.Remove(0, llvm_module_prefix.Length);
+			node.entry.cl_params["ObjectFileName"] = object_file_path;
+			cl = GetCL_From_PropertyDictionary(node.entry.cl_params);
+			cl.AdditionalOptions = additional_options + cl.AdditionalOptions;
+			cl.Execute();
+		}
 		EndTracking(success, cl.TrackerLogDirectory + "src\\", prefix, node.entry.source_file, tracking_command);
 		if(!success)
 			return false;
+		
+		if(IsLLVM()) {
+			// FileTracker doesn't find the output files
+			// possibly related to https://groups.google.com/forum/#!msg/llvm-dev/3bFm0Qg2-xs/OrbPIoDdHAAJ
+			var lines = new List<string>();
+			lines.Add("#");
+			lines.Add(NormalizeFilePath(cl.ObjectFileName + Path.GetFileNameWithoutExtension(node.entry.source_file) + ".obj"));
+			if(node.entry.exported_module != "") lines.Add(NormalizeFilePath(node.entry.bmi_file));
+			File.WriteAllLines(cl.TrackerLogDirectory + "src\\" + prefix + ".write.99.tlog", lines.ToArray());
+		}
 		
 		if(node.entry.exported_module != "") {
 			byte[] new_hash = GetBMI_Hash(node.entry.bmi_file);
