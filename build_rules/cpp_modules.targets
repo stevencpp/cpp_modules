@@ -9,14 +9,30 @@
 		<CppM_BMI_Ext>.ifc</CppM_BMI_Ext>
 		<CppM_OutOfDate_File>$(CppM_IntDir_FullPath)cppm_ood.txt</CppM_OutOfDate_File>
 		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
+		<CppM_ClangPath       Condition="'$(CppM_ClangPath)'      ==''" >c:\Program Files\LLVM\bin</CppM_ClangPath>
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
 		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
 		<CppM_LegacyHeader_Path>$(CppM_IntDir_FullPath)</CppM_LegacyHeader_Path>
 		<CppM_LegacyModuleMapFile>$(CppM_IntDir_FullPath)legacy.modulemap</CppM_LegacyModuleMapFile>
+		<CppM_ClangScanDepsPath>$(CppM_ClangPath)\clang-scan-deps.exe</CppM_ClangScanDepsPath>
+		<CppM_PP_CompilationDatabase>$(CppM_IntDir_FullPath)pp_commands.json</CppM_PP_CompilationDatabase>
 	</PropertyGroup>
 	
 	<ItemGroup>
 		<CppM_CurrentProject Include="$(ProjectPath)"> <Project>$(ProjectGuid)</Project> </CppM_CurrentProject>
+		<PropertyPageSchema Include="$(CppM_TargetsPath)cpp_modules.xml">
+			<!--<Context>Project</Context>!-->
+		</PropertyPageSchema>
+	</ItemGroup>
+	
+	<ItemGroup>
+		<!-- for header units listed via CMake !-->
+		<ClInclude Remove="$(CppM_Legacy_Headers)" />
+		<ClCompile Include="$(CppM_Legacy_Headers)">
+			<CppM_Header_Unit>true</CppM_Header_Unit>
+		</ClCompile>
+		<!-- for header units listed via the project properties, but the following is an error !-->
+		<!--<CppM_Legacy_Headers Include="@(CLCompile)" Condition="'%(ClCompile.CppM_Header_Unit)' == 'true'" />!-->
 	</ItemGroup>
 	
 	<UsingTask TaskName="CppM_CL" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll" >
@@ -36,10 +52,14 @@
 			<BMI_Path ParameterType="System.String" Required="true" />
 			<BMI_Ext ParameterType="System.String" Required="true" />
 			<Legacy_ModuleMapFile ParameterType="System.String" Required="true" />
+			<ClangScanDepsPath ParameterType="System.String" Required="true" />
+			<PP_CompilationDatabase ParameterType="System.String" Required="true" />
 		</ParameterGroup>
 		<Task>
 			<!-- for the CL task !-->
-			<Reference Include="$(VCTargetsPath)Microsoft.Build.CppTasks.Common.dll"/>
+			<!-- with LLVM and both VS2017 and VS2019 installed, VCTargetsPath is set to an escaped version of the VS2017 targets path,
+				e.g "C:\Program Files %28x86%29" which is invalid and fails to load if not unescaped !-->
+			<Reference Include="$([MSBUILD]::Unescape($(VCTargetsPath)Microsoft.Build.CppTasks.Common.dll))"/>
 			<!-- for JavaScriptSerializer !-->
 			<Reference Include="System.Web.Extensions" />
 			<!-- for ProjectCollections / walking the project tree !-->
@@ -112,6 +132,8 @@
 			BMI_Path="$(CppM_BMI_Path)"
 			BMI_Ext="$(CppM_BMI_Ext)"
 			Legacy_ModuleMapFile="$(CppM_LegacyModuleMapFile)"
+			ClangScanDepsPath="$(CppM_ClangScanDepsPath)"
+			PP_CompilationDatabase="$(CppM_PP_CompilationDatabase)"
 		/>
 		
 		<!-- CppM_StopBuild intentionally does not exist so that an error really stops 
@@ -133,13 +155,6 @@
 		</ItemGroup>
 		<Delete Files="@(CppM_To_Delete)" />
 	</Target>
-
-	<ItemGroup>
-		<ClInclude Remove="$(CppM_Legacy_Headers)" />
-		<ClCompile Include="$(CppM_Legacy_Headers)">
-			<CppM_Legacy_Header>true</CppM_Legacy_Header>
-		</ClCompile>
-	</ItemGroup>
 	
 	<!-- without this VS sometimes fails notice that the project is out of date !-->
 	<Target Name="CppM_BuildState_Workaround" AfterTargets="Build">

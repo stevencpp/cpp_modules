@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Rule Name="CL" PageTemplate="tool" DisplayName="C/C++" OverrideMode="Extend" SwitchPrefix="/" Order="10" xmlns="http://schemas.microsoft.com/build/2009/properties" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=mscorlib">
+<Rule.Categories>
+    <Category Name="Language" DisplayName="Language" />
+  </Rule.Categories>
+  <Rule.DataSource>
+    <DataSource Persistence="ProjectFile" ItemType="ClCompile" Label="" HasConfigurationCondition="true" />
+  </Rule.DataSource>
+	<BoolProperty Name="CppM_Header_Unit" DisplayName="Header Unit" Description="Create an importable header unit." Category="Language" Switch="">
+	</BoolProperty>
+</Rule>

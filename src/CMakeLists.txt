@@ -17,6 +17,7 @@ if(WIN32)
 		../build_rules/cpp_modules.props
 		../build_rules/cpp_modules.targets
 		../build_rules/cpp_modules.cs
+		../build_rules/cpp_modules.xml
 		../build_rules/Newtonsoft.Json.dll
 		DESTINATION etc
 	)
