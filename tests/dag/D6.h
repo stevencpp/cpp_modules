@@ -1,4 +1,5 @@
-import std.core;
+//import std.core;
+#include <stdio.h>
 
 namespace D6 {
 	void foo() {

@@ -63,7 +63,8 @@ public class CppM_CL : Task
 	
 	// todo: replace this with a compiler enum
 	bool IsLLVM() {
-		return PlatformToolset.ToLower() == "llvm";
+		var toolset = PlatformToolset.ToLower();
+		return toolset == "llvm" || toolset == "clangcl";
 	}
 	
 	// load all transitively referenced projects
@@ -116,7 +117,7 @@ public class CppM_CL : Task
 			// note: the slashes need to be escaped for clang's modulemap format
 			var lines = all_importable_headers.Select(header => 
 				"module " + GetImportableHeaderModuleName(header) + 
-				" { header \"" + header.Replace('\\', '/') + "\" export * }"
+				" {\n header \"" + header.Replace('\\', '/') + "\"\n export *\n}"
 			).ToArray();
 			if(!File.Exists(Legacy_ModuleMapFile) || !lines.SequenceEqual(File.ReadAllLines(Legacy_ModuleMapFile)))
 				File.WriteAllLines(Legacy_ModuleMapFile, lines);
@@ -833,7 +834,7 @@ public class CppM_CL : Task
 		
 		var project_source_to_node = new Dictionary<string, GlobalModuleMapNode>();
 		
-		// todo: try to keep the while project tree and the global module map in memory 
+		// todo: try to keep the whole project tree and the global module map in memory 
 		// rather than reloading the subtrees over and over again during a build
 		// todo: maybe parallelize this ?
 		foreach(Project project in project_collection.LoadedProjects) {

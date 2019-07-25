@@ -4,7 +4,7 @@ import std.core;
 
 import C4;
 
-#include <C5.lh>
+#include <C5.h>
 
 export namespace C3 {
 	void foo() {

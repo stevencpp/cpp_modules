@@ -23,7 +23,7 @@ required_find_path(CPPM_TARGETS_PATH cpp_modules.targets
 
 function(target_cpp_modules targets)
 	foreach(target ${ARGV})
-		set_property(TARGET ${target} PROPERTY CXX_STANDARD 17)
+		set_property(TARGET ${target} PROPERTY CXX_STANDARD 20)
 		#the following doesn't set EnableModules and so /module:stdifcdir is also not set:
 		#target_compile_options(${target} PRIVATE "/experimental:module") 
 		#so use a property sheet instead to set EnableModules:

@@ -18,6 +18,13 @@
 		<CppM_PP_CompilationDatabase>$(CppM_IntDir_FullPath)pp_commands.json</CppM_PP_CompilationDatabase>
 	</PropertyGroup>
 	
+	<!-- with the default VS clang toolset the tools are specified without their full paths !-->
+	<PropertyGroup Condition="'$(PlatformToolset)' == 'ClangCL'">
+		<CLToolExe>$(CppM_ClangPath)\clang-cl.exe</CLToolExe>
+		<LinkToolExe>$(CppM_ClangPath)\lld-link.exe</LinkToolExe>
+		<LibToolExe>$(CppM_ClangPath)\llvm-lib.exe</LibToolExe>
+	</PropertyGroup>
+	
 	<ItemGroup>
 		<CppM_CurrentProject Include="$(ProjectPath)"> <Project>$(ProjectGuid)</Project> </CppM_CurrentProject>
 		<PropertyPageSchema Include="$(CppM_TargetsPath)cpp_modules.xml">

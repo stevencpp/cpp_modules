@@ -39,6 +39,7 @@ add_library(D STATIC
 	D2.cpp
 	D3.cpp
 	D4.cpp
+	std_core.cpp
 )
 
 target_cpp_legacy_headers(D
@@ -46,7 +47,9 @@ target_cpp_legacy_headers(D
 	D6.h
 )
 
-set_property(TARGET A B C D PROPERTY CXX_STANDARD 17)
+foreach(T A B C D)
+	target_include_directories(${T} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+endforeach()
 
 target_cpp_modules(A B C D)
 
