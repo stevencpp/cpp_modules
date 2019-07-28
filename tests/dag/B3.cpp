@@ -4,6 +4,7 @@ import std.core;
 
 import B2;
 #include <D5.h>
+//import <D6.h> // clang pp - doesn't work yet
 #include <D6.h>
 
 export namespace B3 {

@@ -1,4 +1,4 @@
-//import std.core;
+//import std.core; // clang -- fatal error : module 'std' not found
 #include <stdio.h>
 
 namespace D6 {

@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<PropertyGroup>
-		<CppM_TargetsPath Condition="'$(CppM_TargetsPath)' ==''" >c:\Program Files\cpp_modules\etc\</CppM_TargetsPath>
+		<CppM_TargetsPath 		Condition="'$(CppM_TargetsPath)' 	  ==''">c:\Program Files\cpp_modules\etc\</CppM_TargetsPath>
+		<CppM_ClangPath       	Condition="'$(CppM_ClangPath)'        ==''">c:\Program Files\LLVM\bin</CppM_ClangPath>
+		<CppM_ClangScanDepsPath Condition="'$(CppM_ClangScanDepsPath)'==''">$(CppM_ClangPath)\clang-scan-deps.exe</CppM_ClangScanDepsPath>
+		<CppM_NinjaExePath 		Condition="'$(CppM_NinjaExePath)'	  ==''">$(VSAPPIDDIR)\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe</CppM_NinjaExePath>
+		
 		<CppM_IntDir_FullPath>$(MSBuildProjectDirectory)\$(IntDir)</CppM_IntDir_FullPath>
 		<CppM_IntDir_FullPath Condition="$([System.IO.Path]::IsPathRooted('$(IntDir)'))">$(IntDir)</CppM_IntDir_FullPath>
+		
 		<CppM_ModuleMapFile>$(CppM_IntDir_FullPath)module_map.json</CppM_ModuleMapFile>
 		<CppM_BMI_Path>$(CppM_IntDir_FullPath)</CppM_BMI_Path>
-		<CppM_BMI_Ext>.ifc</CppM_BMI_Ext>
-		<CppM_OutOfDate_File>$(CppM_IntDir_FullPath)cppm_ood.txt</CppM_OutOfDate_File>
-		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
-		<CppM_ClangPath       Condition="'$(CppM_ClangPath)'      ==''" >c:\Program Files\LLVM\bin</CppM_ClangPath>
-		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
-		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
-		<CppM_LegacyHeader_Path>$(CppM_IntDir_FullPath)</CppM_LegacyHeader_Path>
-		<CppM_LegacyModuleMapFile>$(CppM_IntDir_FullPath)legacy.modulemap</CppM_LegacyModuleMapFile>
-		<CppM_ClangScanDepsPath>$(CppM_ClangPath)\clang-scan-deps.exe</CppM_ClangScanDepsPath>
 		<CppM_PP_CompilationDatabase>$(CppM_IntDir_FullPath)pp_commands.json</CppM_PP_CompilationDatabase>
+		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
+		
+		<CppM_BMI_Ext>.ifc</CppM_BMI_Ext>
+		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
+		
+		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
 	</PropertyGroup>
 	
 	<!-- with the default VS clang toolset the tools are specified without their full paths !-->
@@ -55,12 +57,12 @@
 			<Platform ParameterType="System.String" Required="true" />
 			<PlatformToolset ParameterType="System.String" Required="true" />
 			<PreProcess_Only ParameterType="System.String" Required="true" />
-			<OutOfDate_File ParameterType="System.String" Required="true" />
 			<BMI_Path ParameterType="System.String" Required="true" />
 			<BMI_Ext ParameterType="System.String" Required="true" />
-			<Legacy_ModuleMapFile ParameterType="System.String" Required="true" />
 			<ClangScanDepsPath ParameterType="System.String" Required="true" />
 			<PP_CompilationDatabase ParameterType="System.String" Required="true" />
+			<IntDir ParameterType="System.String" Required="true" />
+			<NinjaExecutablePath ParameterType="System.String" Required="true" />
 		</ParameterGroup>
 		<Task>
 			<!-- for the CL task !-->
@@ -92,6 +94,7 @@
 			<CppM_CL_Input_All Include="@(ClCompile)" Condition="'%(ClCompile.PrecompiledHeader)' != 'Create' and '%(ClCompile.ExcludedFromBuild)'!='true' and '%(ClCompile.CompilerIteration)' == '' and @(ClCompile) != ''">
 				<CppM_ModuleDefinitionFile>$(IntDir)%(CLCompile.FileName)$(CppM_Mdef_Suffix)</CppM_ModuleDefinitionFile>
 				<CppM_BMI_File>$(IntDir)%(Filename).ifc</CppM_BMI_File>
+				<CppM_ObjectFilePath>$(IntDir)%(Filename).obj</CppM_ObjectFilePath>
 				<BuildingInIDE>$(BuildingInsideVisualStudio)</BuildingInIDE>
 				<!--<Sources>@(ClCompile)</Sources>!-->
 				<Sources>%(ClCompile.FullPath)</Sources>
@@ -135,12 +138,12 @@
 			Platform="$(Platform)"
 			PlatformToolset="$(PlatformToolset)"
 			PreProcess_Only="$(CppM_PreProcess_Only)"
-			OutOfDate_File="$(CppM_OutOfDate_File)"
 			BMI_Path="$(CppM_BMI_Path)"
 			BMI_Ext="$(CppM_BMI_Ext)"
-			Legacy_ModuleMapFile="$(CppM_LegacyModuleMapFile)"
 			ClangScanDepsPath="$(CppM_ClangScanDepsPath)"
 			PP_CompilationDatabase="$(CppM_PP_CompilationDatabase)"
+			IntDir="$(CppM_IntDir_FullPath)"
+			NinjaExecutablePath="$(CppM_NinjaExePath)"
 		/>
 		
 		<!-- CppM_StopBuild intentionally does not exist so that an error really stops 
