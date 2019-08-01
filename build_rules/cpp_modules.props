@@ -3,9 +3,10 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup>
-    <ClCompile>
-      <EnableModules Condition="'$(PlatformToolset)'!='llvm' and '$(PlatformToolset)'!='ClangCl'">true</EnableModules>
-    </ClCompile>
+    <!--<ClCompile Condition="'$(PlatformToolset)'!='llvm' and '$(PlatformToolset)'!='ClangCl'">
+      <EnableModules>true</EnableModules>
+	  <LanguageStandard>stdcpplatest</LanguageStandard>
+    </ClCompile>!-->
   </ItemDefinitionGroup>
   <ItemGroup />
 </Project>

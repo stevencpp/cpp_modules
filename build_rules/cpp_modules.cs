@@ -18,7 +18,7 @@ using Exec = Microsoft.Build.Tasks.Exec;
 using String = System.String;
 using Convert = System.Convert;
 using Type = System.Type;
-using System.Collections.Generic; // for List<T>, Dictionary<T,U>, HashSet<T>, IEnumerable<T>, LinkedList<T>
+using System.Collections.Generic;
 using PropertyInfo = System.Reflection.PropertyInfo;
 using FileInfo = System.IO.FileInfo;
 using File = System.IO.File;
@@ -26,36 +26,29 @@ using Path = System.IO.Path;
 using Directory = System.IO.Directory;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
-using System.Linq; // for Select, Where, SelectMany
+using System.Linq;
 
 public class CppM_CL : Task
 {
 	[Required] public ITaskItem[] CL_Input_All { get; set; }
-	[Required] public ITaskItem[] CL_Input_Selected { get; set; }
 	[Required] public ITaskItem[] CL_Input_Manually_Selected { get; set; }
 	[Required] public ITaskItem[] CurrentProjectHolder { get; set; }
 	[Required] public ITaskItem[] ProjectReference { get; set; }
-	[Required] public String ModuleMapFile { get; set; }
 	[Required] public String SolutionFilePath { get; set; }
 	[Required] public String Configuration { get; set; }
 	[Required] public String Platform { get; set; }
 	[Required] public String PlatformToolset { get; set; }
 	[Required] public String PreProcess_Only { get; set; }
-	[Required] public String BMI_Path { get; set; }
-	[Required] public String BMI_Ext { get; set; }
 	[Required] public String ClangScanDepsPath { get; set; }
-	[Required] public String PP_CompilationDatabase { get; set; }
 	[Required] public String IntDir { get; set; }
 	[Required] public String NinjaExecutablePath { get; set; }
 	
-	string NinjaBuildFile(string int_dir) { return int_dir + "build.ninja"; }
-	string NinjaRecursiveBuildFile(string int_dir) { return int_dir + "build_rec.ninja"; }
-	
-	ITaskItem[] CL_Input_OutOfDate_PP = null;
-	ITaskItem[] CL_Input_OutOfDate_Src = null;
-	
-	String CurrentProject = "";
-	ProjectCollection project_collection = null;
+	// note: remember CppM_BeforeClean when changing this
+	string PP_ModuleMapFile			= "pp.modulemap";
+	string PP_CompilationDatabase 	= "pp_commands.json";
+	string ModuleMapFile 			= "module_map.json";
+	string NinjaBuildFile 			= "build.ninja";
+	string NinjaRecursiveBuildFile 	= "build_rec.ninja";
 	
 	// todo: replace this with a compiler enum
 	bool IsLLVM() {
@@ -63,25 +56,43 @@ public class CppM_CL : Task
 		return toolset == "llvm" || toolset == "clangcl";
 	}
 	
+	void CreateProjectCollection(string measure_message) {
+		CallMeasured<bool>(measure_message, () => CreateProjectCollection());
+	}
+	
 	// load all transitively referenced projects
 	// todo: keep this in memory somehow when building a project hierarchy
+	// maybe even run a daemon ?
 	bool CreateProjectCollection() {
-		CurrentProject = CurrentProjectHolder[0].GetMetadata("FullPath");
+		string CurrentProject = CurrentProjectHolder[0].GetMetadata("FullPath");
 		
-		project_collection = new ProjectCollection( new Dictionary<String, String> {
+		ProjectCollection project_collection = new ProjectCollection( new Dictionary<String, String> {
 			{ "SolutionDir", Path.GetDirectoryName(SolutionFilePath) + "\\" },
 			{ "Configuration", Configuration }, { "Platform", Platform },
 			{ "SolutionPath", SolutionFilePath } // just for completeness
 		});
+		//project_collection = ProjectCollection.GlobalProjectCollection; // todo: check if this is faster ?
 		
 		var project_queue = new Queue<string>();
 		var loaded_projects = new HashSet<string>();
 		project_queue.Enqueue(CurrentProject);
 		loaded_projects.Add(CurrentProject);
 		
+		bool first = true;
 		while(project_queue.Count > 0) {
 			var project_file = project_queue.Dequeue();
 			var project = project_collection.LoadProject(project_file);
+			
+			// skip projects like ZERO_CHECK and others that aren't using cpp_modules
+			var int_dir = project.GetPropertyValue("CppM_IntDir_FullPath");
+			if(int_dir == "") {
+				project_collection.UnloadProject(project);
+				continue;
+			}
+			
+			var target = new Target{ project = project, int_dir = int_dir };
+			all_targets.Add(target);
+			if(first) {	root_target = target; first = false;	}
 			
 			foreach(ProjectItem reference in project.GetItems("ProjectReference")) {
 				string path = reference.GetMetadataValue("FullPath");
@@ -96,26 +107,34 @@ public class CppM_CL : Task
 		return Path.GetFileNameWithoutExtension(header_path).ToUpper();
 	}
 	
-	HashSet<string> all_importable_headers = null;
+	void WriteAllLines_IfChanged(string file_path, IEnumerable<string> lines) {
+		if(!File.Exists(file_path) || !lines.SequenceEqual(File.ReadAllLines(file_path)))
+			File.WriteAllLines(file_path, lines);
+	}
 	
-	bool GetImportableHeaders()
+	HashSet<string> GetImportableHeaders()
 	{
-		all_importable_headers = project_collection.LoadedProjects.SelectMany(project =>
-			project.GetItems("ClCompile")
+		// merge the sets of importable headers from all transitively referenced projects
+		var all_importable_headers = all_targets.SelectMany(target =>
+			//todo: use the CppM_PreProcess target
+			target.project.GetItems("ClCompile")
 				.Where(i => i.GetMetadataValue("CppM_Header_Unit") == "true"
 					&& i.GetMetadataValue("ExcludedFromBuild") != "true")
 				.Select(i => NormalizeFilePath(i.GetMetadataValue("FullPath")))
 		).ToHashSet();
-		all_importable_headers.Remove("");
 		
-		return true;
+		// create a module map for the preprocessor to know which headers are importable
+		/*WriteAllLines_IfChanged(IntDir + PP_ModuleMapFile, all_importable_headers
+			.Select(header => "module " + GetImportableHeaderModuleName(header) + 
+				" {\n header \"" + PortablePath(header) + "\"\n export *\n}"));*/
+
+		return all_importable_headers;
 	}
 	
-	string NormalizeFilePath(string file_path) {
+	static string NormalizeFilePath(string file_path) {
 		try { return Path.GetFullPath(file_path).ToUpper(); }
 		catch (System.Exception e) {
-			Log.LogMessage(MessageImportance.High, "failed to normalize path {0}", file_path);
-			throw e;
+			throw new System.Exception(String.Format("failed to normalize path {0}", file_path), e);
 		}
 	}
 	
@@ -144,29 +163,22 @@ public class CppM_CL : Task
 	
 	string[] rws = new string[]{"write", "read", "command"};
 	
-	void InitTLogs(Dictionary<string, TLogSet> src_to_tlog_set, IEnumerable<string> sources) {
-		foreach(string src_file in sources) {
-			src_to_tlog_set.Add(src_file, new TLogSet{ src_file = src_file });
-		}
-	}
-	
-	void ReadTLogs(Dictionary<string, TLogSet> src_to_tlog_set, string directory)
+	void ReadTLogs(ItemSet itemset, string directory)
 	{
 		for(int i = 0; i < 3; i++) {
-			TLogSet current_set = null;
+			Item cur_item = null;
 			bool skip = true;
 			try {
 				foreach(string line in File.ReadAllLines(directory + "cppm." + rws[i] + ".1.tlog")) {
 					if(line.StartsWith("^")) {
 						skip = true;
-						string src_file = NormalizeFilePath(line.Substring(1));
 						// only read the tlogs if the source file still exists (TLogSet was initialized)
-						if(src_to_tlog_set.TryGetValue(src_file, out current_set)) {
+						if(itemset.TryGet(line.Substring(1), out cur_item)) {
 							// don't read the old tlogs if newer ones have already been loaded
-							skip = current_set.GetLines(i).Count > 0;
+							skip = cur_item.tlog_set.GetLines(i).Count > 0;
 						}
 					} else if(!skip) {
-						current_set.GetLines(i).Add(i == 2 ? line : NormalizeFilePath(line));
+						cur_item.tlog_set.GetLines(i).Add(i == 2 ? line : NormalizeFilePath(line));
 					}
 				}
 			} catch(System.IO.FileNotFoundException) {
@@ -176,52 +188,37 @@ public class CppM_CL : Task
 		}
 	}
 	
-	void WriteTLogs(Dictionary<string, TLogSet> src_to_tlog_set, string directory) {
-		for(int i = 0; i < 3; i++) {
-			File.WriteAllLines(
-				directory + "cppm." + rws[i] + ".1.tlog",
-				src_to_tlog_set.Values.SelectMany(tlog_set => tlog_set.GetOutputLines(i)).ToArray()
-			);
+	void WriteTLogs(ItemSet itemset) {
+		foreach(var group in itemset.Items.GroupBy(i => i.tlog_dir)) {
+			var directory = group.Key;
+			for(int i = 0; i < 3; i++) {
+				File.WriteAllLines(
+					directory + "cppm." + rws[i] + ".1.tlog",
+					group.SelectMany(item => item.tlog_set.GetOutputLines(i)).ToArray()
+				);
+			}
 		}
 	}
 	
-	void PrintAllMetadata(ITaskItem item) {
-		foreach(var meta in item.MetadataNames) {
-			try {
-				Log.LogMessage(MessageImportance.High, "meta {0} = {1}", meta.ToString(), item.GetMetadata(meta.ToString()) );
-			} catch(System.Exception) {}
-		}
-	}
-	
-	delegate string PropToValueFunc(string prop);
-	
-	string GetBaseCommand(ITaskItem item, bool preprocess) {
-		return GetBaseCommand(prop => item.GetMetadata(prop), preprocess);
-	}
-	
-	string GetBaseCommand(Dictionary<string, string> cl_params, bool preprocess) {
-		return GetBaseCommand(prop => {
-			string meta_value = null;
-			return cl_params.TryGetValue(prop, out meta_value) ? meta_value : "";
-		}, preprocess);
-	}
-	
-	string GetBaseCommand(PropToValueFunc p_to_v, bool preprocess)
+	string GetBaseCommand(Item item, bool preprocess)
 	{
+		// copy metadata from the source items into CLCommandLine
 		var cmdline = new CLCommandLine();
 		foreach(string prop in props) {
 			// this makes sure the command doesn't change when we call msbuild on other projects for preprocessing:
 			if(props_not_for_cmd.Contains(prop)) continue;
-			string meta_value = p_to_v(prop);
+			string meta_value = item.GetMetadata(prop);
 			if(meta_value != "" && !SetPropertyFromString(cmdline, prop, meta_value)) {
 				Log.LogMessage(MessageImportance.High, "failed to set {0}", prop);
 				throw new System.Exception("failed to set property for CLCommandLine");
 			}
 		}
 		if(preprocess) {
-			cmdline.PreprocessToFile = true;
 			cmdline.EnableModules = false; // for clang-scan-deps
 			cmdline.AdditionalOptions = ""; // todo: just remove /module:stdIfcDir
+		} else {
+			if(!IsLLVM()) // serialize writes to the PDB files (otherwise cl.exe fails to open them in parallel)
+				cmdline.AdditionalOptions += " /FS ";
 		}
 		if(!cmdline.Execute())
 			throw new System.Exception("failed to execute CLCommandLine");
@@ -229,21 +226,23 @@ public class CppM_CL : Task
 		if(!IsLLVM()) // for some reason CLToolExe no longer seems to bet set for MSVC
 			tool = "cl.exe";
 		string args = cmdline.CommandLines[0].GetMetadata("Identity");
-		var name = PortablePath(NormalizeFilePath(cmdline.Sources[0].GetMetadata("FullPath")));
-		return String.Format("\"{0}\" {1} \"{2}\"", tool, args, name);
+		//if(IsLLVM() && !preprocess) // todo: at some point scan-deps will also need to know the set of importable headers
+		//	args += " -Xclang \"-fmodule-map-file=" + item.target.int_dir + PP_ModuleMapFile + "\" ";
+		var name = item.path;
+		if(IsLLVM()) name = PortablePath(name);
+		return String.Format("\"{0}\" \"{1}\" {2}", tool, name, args);
 	}
 	
-	ITaskItem[] GetOOD(string tlog_directory, Dictionary<string, TLogSet> src_to_tlog_set, bool preprocess)
+	ITaskItem[] GetOOD(string tlog_directory, IEnumerable<Item> items, bool preprocess)
 	{
 		var get_ood_sources = new List<TaskItem>();
-		foreach(ITaskItem item in CL_Input_All) {
-			var tlog_set = src_to_tlog_set[NormalizeFilePath(item.GetMetadata("FullPath"))];
-			tlog_set.SetCommand(GetBaseCommand(item, preprocess));
-			var ood_item = new TaskItem(tlog_set.src_file);
-			ood_item.SetMetadata("write", String.Join(";", tlog_set.outputs));
-			ood_item.SetMetadata("read", String.Join(";", tlog_set.inputs));
-			ood_item.SetMetadata("command", tlog_set.GetCommand());
-			//Log.LogMessage(MessageImportance.High, "{0} - {1} - dir {2}", item.GetMetadata("FileName"), tlog_set.GetCommand(), tlog_directory);
+		foreach(var item in items) {
+			item.tlog_set.SetCommand(GetBaseCommand(item, preprocess));
+			var ood_item = new TaskItem(item.tlog_set.src_file);
+			ood_item.SetMetadata("write", String.Join(";", item.tlog_set.outputs));
+			ood_item.SetMetadata("read", String.Join(";", item.tlog_set.inputs));
+			ood_item.SetMetadata("command", item.tlog_set.GetCommand());
+			//Log.LogMessage(MessageImportance.High, "{0} - {1} - dir {2}", item.GetMetadata("FileName"), item.tlog_set.GetCommand(), tlog_directory);
 			get_ood_sources.Add(ood_item);
 		}
 		
@@ -266,21 +265,26 @@ public class CppM_CL : Task
 		
 		return get_ood.OutOfDateSources;
 	}
-	
-	bool ReadTLogs_GetOOD()
-	{
-		if(CL_Input_All.Length == 0)
-			return true;
-		
-		string tlog_dir = CL_Input_All[0].GetMetadata("TrackerLogDirectory");
-		string tlog_dir_pp = tlog_dir + "pp\\";
-		src_to_tlog_set_pp = new Dictionary<string, TLogSet>();
-		InitTLogs(src_to_tlog_set_pp, CL_Input_All.Select(
-			item => NormalizeFilePath(item.GetMetadata("FullPath"))
-		));
-		ReadTLogs(src_to_tlog_set_pp, tlog_dir_pp);
-		CL_Input_OutOfDate_PP = GetOOD(tlog_dir_pp, src_to_tlog_set_pp, true);
-		return true;
+
+	ItemSet ReadTLogs_GetOOD() {
+		var itemset = new ItemSet();
+		foreach(var item in CL_Input_All)
+			itemset.Add(item, root_target);
+		ReadTLogs_GetOOD(ref itemset); 
+		return itemset;
+	}
+
+	void ReadTLogs_GetOOD(ref ItemSet itemset) {
+		if(itemset.Items.Count == 0)
+			return;
+		foreach(var item in itemset.Items)
+			item.EnsureInitTLogSet();
+		foreach(var group in itemset.Items.GroupBy(i => i.tlog_dir)) {
+			var tlog_dir = group.Key;
+			ReadTLogs(itemset, tlog_dir);
+			foreach(var itaskitem in GetOOD(tlog_dir, group, preprocess: true))
+				itemset.Get(itaskitem.GetMetadata("FullPath")).is_ood = true;
+		}
 	}
 	
 	bool SetPropertyFromString(object obj, string prop, string value)
@@ -342,17 +346,6 @@ public class CppM_CL : Task
 	// we should not recompile the files if these properties change:
 	string[] props_not_for_cmd = { "BuildingInIde", "ErrorReporting" };
 	
-	Dictionary<string, string> Get_CL_PropertyDictionary(ITaskItem item)
-	{
-		var dict = new Dictionary<string, string>();
-		foreach(string prop in props) {
-			string meta_value = item.GetMetadata(prop);
-			if(meta_value != "")
-				dict.Add(prop, meta_value);
-		}
-		return dict;
-	}
-	
 	// returns true if a_file is newer than b_file
 	// false if b_file exists but a_file does not
 	// true if neither file exists
@@ -364,22 +357,24 @@ public class CppM_CL : Task
 	
 	public class ModuleDefinition
 	{
-		public string bmi_file = "";
+		public string cmi_file = "";
+		public string obj_file = "";
 		public string exported_module = "";
 		public bool importable_header = false;
 		public List<string> imported_modules = new List<string>();
 		public List<string> imported_headers = new List<string>();
 		public List<string> included_headers = new List<string>();
-		public Dictionary<string, string> cl_params = new Dictionary<string, string>();
+		public string base_command = "";
 		
 		public void assign(ModuleDefinition def) {
-			bmi_file = def.bmi_file;
+			cmi_file = def.cmi_file;
+			obj_file = def.obj_file;
 			exported_module = def.exported_module;
 			importable_header = def.importable_header;
 			imported_modules = def.imported_modules;
 			imported_headers = def.imported_headers;
 			included_headers = def.included_headers;
-			cl_params = def.cl_params;
+			base_command = def.base_command;
 		}
 	}
 	
@@ -387,9 +382,10 @@ public class CppM_CL : Task
 	{
 		public class Entry : ModuleDefinition {
 			public string source_file = "";
+			public string mdef_file = "";
 			
-			public static Entry create(string src_file, ModuleDefinition module_def) {
-				Entry ret = new Entry { source_file = src_file };
+			public static Entry create(string src_file, string mdef_file, ModuleDefinition module_def) {
+				Entry ret = new Entry { source_file = src_file, mdef_file = mdef_file };
 				ret.assign(module_def);
 				return ret;
 			}
@@ -442,103 +438,147 @@ public class CppM_CL : Task
 		public string directory, file, command;
 	}
 	
-	class ExecuteResult { public bool success, got_exit_code; public int exit_code; public ITaskItem[] console_output; }
-	ExecuteResult ExecuteCommand(string command, bool pipe_output)
-	{
-		Log.LogMessage(MessageImportance.High, "executing {0}", command);
-		var exec = new Exec {
-			Command = command,
-			ConsoleToMSBuild = pipe_output,
-			BuildEngine = this.BuildEngine,
-			EchoOff = pipe_output,
-			IgnoreExitCode = true,
-			StandardOutputImportance = pipe_output ? "low" : "high"
-		};
-		bool ok = exec.Execute();
-		if(!ok)	Log.LogMessage(MessageImportance.High, "ERROR: failed to execute {0}", command);
-		return new ExecuteResult { success = (ok && exec.ExitCode == 0), got_exit_code = ok, 
-			exit_code = exec.ExitCode, console_output = exec.ConsoleOutput };
+	class ExecuteResult { public int exit_code; public ITaskItem[] console_output; }
+	ExecuteResult ExecuteCommand(string command, bool pipe_output = false, string measure_message = null) {
+		return CallMeasured<ExecuteResult>(measure_message, () => {
+			Log.LogMessage(MessageImportance.High, "executing {0}", command);
+			var exec = new Exec {
+				Command = command,
+				ConsoleToMSBuild = pipe_output,
+				BuildEngine = this.BuildEngine,
+				EchoOff = pipe_output,
+				IgnoreExitCode = true,
+				StandardOutputImportance = pipe_output ? "low" : "high"
+			};
+			if(!exec.Execute())
+				throw new System.Exception(String.Format("ERROR: failed to execute {0}", command));
+			return new ExecuteResult { exit_code = exec.ExitCode, console_output = exec.ConsoleOutput };
+		});
 	}
 	
 	void LogScanReport(string src_file, ModuleDefinition mdef) {
 		string report = "";
 		if(mdef.exported_module != "" && !mdef.importable_header)
 			report = "exp: " + mdef.exported_module + " ";
-		string imports = String.Join(" ", mdef.imported_modules) +
-			String.Join(" ", mdef.imported_headers);
+		string imports = String.Join(" ", mdef.imported_modules.Concat(mdef.imported_headers));
 		report += (imports != "" ? "imp: " + imports : "");
 		if(report != "") Log.LogMessage(MessageImportance.High, "{0} {1}", src_file, report);
 	}
 	
-	bool RunScanDeps(ModuleMap module_map, HashSet<string> ood_files, Dictionary<string, ITaskItem> src_to_item)
+	delegate string PropToValueFunc(string prop);
+	
+	abstract class Item {
+		public string path = null;
+		public TLogSet tlog_set = null;
+		public string tlog_dir = null;
+		public bool is_ood = false;
+		public bool visited = false;
+		public Target target = null; // used by RunScanDeps
+		public Node node = null; // used by GetSelectedNinjaTargets
+		// note: could just access the target through node, but you don't have nodes until after RunScanDeps
+		
+		public abstract string GetMetadata(string prop);
+		public Item Init(Target target) {
+			this.path = NormalizeFilePath(GetMetadata("FullPath"));
+			this.target = target;
+			return this;
+		}
+		public void EnsureInitTLogSet() {
+			if(tlog_set == null) {
+				tlog_set = new TLogSet{ src_file = path };
+				tlog_dir = GetMetadata("TrackerLogDirectory") + "pp\\";
+			}
+		}
+	}
+	class ITaskItem_Wrapper : Item {
+		public ITaskItem item = null;
+		public override string GetMetadata(string prop) { return item.GetMetadata(prop).ToString(); }
+	}
+	class ProjectItem_Wrapper : Item {
+		public ProjectItem item = null;
+		public override string GetMetadata(string prop) { return item.GetMetadataValue(prop); }
+	}
+	class ItemSet {
+		public Dictionary<string, Item> dict = new Dictionary<string, Item>();
+		public Dictionary<string, Item>.ValueCollection Items { get { return dict.Values; } }
+		public Item Get(string path) {
+			return dict[NormalizeFilePath(path)];
+		}
+		public bool TryGet(string path, out Item item) {
+			return dict.TryGetValue(NormalizeFilePath(path), out item);
+		}
+		public Item TryGet(string path) {
+			Item item = null;
+			TryGet(path, out item);
+			return item;
+		}
+		public void Add(Item item) { dict.Add(item.path, item); }
+		public void Add(ITaskItem item, Target tgt) { Add(new ITaskItem_Wrapper { item = item }.Init(tgt)); }
+		public void Add(ProjectItem item, Target tgt) { Add(new ProjectItem_Wrapper { item = item }.Init(tgt)); }
+	}
+	
+	// ideally the scanner should make it unnecessary to pass this to RunScanDeps
+	HashSet<string> all_importable_headers_tmp = null;
+	
+	bool RunScanDeps(ItemSet itemset)
 	{
 		// create a preprocessor specific compilation database that only includes out of date files
 		// and does not ask the compiler to load any modules
 		//Log.LogMessage(MessageImportance.High, "generating preprocessor compilation database");
-		var compilation_database = new List<CompilationDatabaseEntry>();
-		foreach(var entry in src_to_tlog_set_pp) {
-			var name = entry.Key; var tlog_set = entry.Value;
-			if(!ood_files.Contains(name)) continue;
-			//Log.LogMessage(MessageImportance.High, "cmd {0}", cmd);
-			compilation_database.Add(new CompilationDatabaseEntry {
-				file = name, command = tlog_set.GetCommand() // todo: directory ???
+		var compilation_database = itemset.Items
+			.Where(i => i.is_ood)
+			.Select(i => new CompilationDatabaseEntry { 
+				file = i.path, command = i.tlog_set.GetCommand() // todo: directory ???
 			});
-		}
-		SerializeToFile(compilation_database, PP_CompilationDatabase);
+		SerializeToFile(compilation_database, IntDir + PP_CompilationDatabase);
 		
 		var command = String.Format("\"{0}\" --compilation-database=\"{1}\"", 
-			ClangScanDepsPath, PP_CompilationDatabase);
+			ClangScanDepsPath, IntDir + PP_CompilationDatabase);
 		//Log.LogMessage(MessageImportance.High, "cmd = {0}", command);
-		var exec_res = ExecuteCommand(command, true);
-		if(!exec_res.success) {
-			if(exec_res.got_exit_code) Log.LogMessage(MessageImportance.High, "ERROR: failed to preprocess the sources");
+		var exec_res = ExecuteCommand(command, pipe_output: true, measure_message: "clang-scan-deps");
+		if(exec_res.exit_code != 0) {
+			Log.LogMessage(MessageImportance.High, "ERROR: failed to preprocess the sources");
 			return false;
 		}
 		
-		var remaining_src = ood_files.ToHashSet();
 		ModuleDefinition cur_mdef = null;
-		string cur_src_file = "";
-		ITaskItem cur_item = null;
-		TLogSet cur_tlog_set = null;
+		Item cur_item = null;
 		VoidFunc finish_cur_mdef = () => {
 			if(cur_mdef == null) return;
 			if(cur_mdef.exported_module != "") // could be from a named module or imported header
-				cur_mdef.bmi_file = BMI_Path + cur_mdef.exported_module + BMI_Ext; // todo: use CppM_BMI_File ?
-			string def_file = cur_item.GetMetadata("CppM_ModuleDefinitionFile").ToString();
-			cur_tlog_set.outputs.Clear();
-			cur_tlog_set.outputs.Add(NormalizeFilePath(def_file));
+				cur_mdef.cmi_file = cur_item.GetMetadata("CppM_CMI_File");
+			string def_file = cur_item.GetMetadata("CppM_ModuleDefinitionFile");
+			cur_item.tlog_set.outputs.Clear();
+			cur_item.tlog_set.outputs.Add(NormalizeFilePath(def_file));
 			SerializeToFile(cur_mdef, def_file);
-			var entry_to_add = ModuleMap.Entry.create(cur_src_file, cur_mdef);
-			module_map.entries.Add(entry_to_add);
-			remaining_src.Remove(cur_src_file);
-			LogScanReport(cur_src_file, cur_mdef);
+			var entry_to_add = ModuleMap.Entry.create(cur_item.path, def_file, cur_mdef);
+			cur_item.target.map.entries.Add(entry_to_add);
+			cur_item.visited = true;
+			LogScanReport(cur_item.path, cur_mdef);
 			cur_mdef = null;
 		};
-		int i = 0;
+		int nr_lines = 0;
 		foreach(var line_item in exec_res.console_output) {
-			if(i++ == 0) continue;
+			if(nr_lines++ == 0) continue;
 			var line = line_item.GetMetadata("Identity");
 			//Log.LogMessage(MessageImportance.High, "{0}", line);
 			//continue;
 			if(line.StartsWith(":::: ")) {
-				// source file
+				// new source file
 				finish_cur_mdef();
-				cur_src_file = NormalizeFilePath(line.Substring(5));
-				if(!src_to_item.TryGetValue(cur_src_file, out cur_item)) {
-					Log.LogMessage(MessageImportance.High, "ERROR: source file {0} not among the inputs", cur_src_file);
-					return false;
-				}
-				cur_tlog_set = src_to_tlog_set_pp[cur_src_file];
-				cur_tlog_set.inputs.Clear();
-				cur_tlog_set.inputs.Add(ClangScanDepsPath);
+				cur_item = itemset.Get(line.Substring(5));
+				cur_item.tlog_set.inputs.Clear();
+				cur_item.tlog_set.inputs.Add(ClangScanDepsPath);
 				// note: clang-scan-deps doesn't execute a separate compiler tool
-
+				
 				cur_mdef = new ModuleDefinition {
-					cl_params = Get_CL_PropertyDictionary(cur_item),
+					base_command = GetBaseCommand(cur_item, preprocess: false),
+					obj_file = NormalizeFilePath(cur_item.GetMetadata("ObjectFileName") + 
+						Path.GetFileNameWithoutExtension(cur_item.path) + ".obj"),
 					importable_header = (cur_item.GetMetadata("CppM_Header_Unit") == "true"),
 				};
 				if(cur_mdef.importable_header)
-					cur_mdef.exported_module = GetImportableHeaderModuleName(cur_src_file);
+					cur_mdef.exported_module = GetImportableHeaderModuleName(cur_item.path);
 			} else if(line.StartsWith(":exp ")) {
 				// exports module
 				var module_name = line.Substring(5);
@@ -550,13 +590,12 @@ public class CppM_CL : Task
 				if(IsLLVM() || !module_name.StartsWith("std."))
 					cur_mdef.imported_modules.Add(module_name);
 			} else {
-				if(line == ":exp") continue; // todo: fix scanner bug
-				// other dependencies (headers,modulemap,precompiled header bmis)
+				// other dependencies (headers,modulemap,precompiled header cmis)
 				var file = NormalizeFilePath(line);
-				if(file == cur_src_file) // for OOD detection
+				if(file == cur_item.path) // for OOD detection
 					continue;
-				cur_tlog_set.inputs.Add(file);
-				if(all_importable_headers.Contains(file)) { // todo: shouldn't need to check, the scanner should tell us
+				cur_item.tlog_set.inputs.Add(file);
+				if(all_importable_headers_tmp.Contains(file)) { // todo: shouldn't need to check, the scanner should tell us
 					cur_mdef.imported_headers.Add(file);
 					cur_mdef.imported_modules.Add(GetImportableHeaderModuleName(file));
 				} else {
@@ -569,17 +608,17 @@ public class CppM_CL : Task
 		finish_cur_mdef();
 		
 		// write partial tlogs even if we couldn't preprocess all of the sources
-		string tlog_dir = CL_Input_All[0].GetMetadata("TrackerLogDirectory");
-		string tlog_dir_pp = tlog_dir + "pp\\";
-		WriteTLogs(src_to_tlog_set_pp, tlog_dir_pp);
+		WriteTLogs(itemset);
 		
-		if(remaining_src.Count > 0) {
+		var remaining_ood = itemset.Items.Where(i => i.is_ood && !i.visited);
+		if(remaining_ood.Count() > 0) {
 			//foreach(var line_item in exec_res.console_output) // todo: weird, if this is uncommented, the errors below don't show up
 			//	Log.LogMessage(MessageImportance.High, "{0}", line_item.GetMetadata("Identity"));
-			foreach(var src_file in remaining_src)
-				Log.LogMessage(MessageImportance.High, "ERROR: source file {0} was not successfully preprocessed", src_file);
+			foreach(var item in remaining_ood)
+				Log.LogMessage(MessageImportance.High, "ERROR: source file {0} was not successfully preprocessed", item.path);
 			return false;
 		}
+
 		return true;
 	}
 	
@@ -590,154 +629,137 @@ public class CppM_CL : Task
 		// todo: check imported property sheets, system environment ... ?
 		return false;
 	}
-
-	bool PreProcess()
+	
+	bool PreProcess(ItemSet itemset)
 	{
 		Log.LogMessage(MessageImportance.High, "CppM: PreProcess");
 		
-		var ood_files = CL_Input_OutOfDate_PP.Select(item => 
-			NormalizeFilePath(item.GetMetadata("FullPath"))).ToHashSet();
-		var src_to_item = CL_Input_All.ToDictionary(item => 
-			NormalizeFilePath(item.GetMetadata("FullPath")));
-
-		ModuleMap module_map = new ModuleMap();
+		var items_by_project = itemset.Items.GroupBy(i => i.target); // todo: is this efficient ?
+		// only_current ?
+		foreach(var group in items_by_project) {
+			var target = group.Key;
+			target.map = new ModuleMap();
+		}
 		
-		// scan out of date files for dependencies, add them to the module map
-		if(ood_files.Count > 0) {
-			if(!RunScanDeps(module_map, ood_files, src_to_item))
+		int nr_ood = itemset.Items.Where(i => i.is_ood).Count();
+		// scan out of date files for dependencies, add them to the module map(s)
+		if(nr_ood > 0) {
+			if(!RunScanDeps(itemset))
 				return false;
 		}
 
-		// even if all of the files up to date, it's still possible
-		// for the module map to be out of date, e.g if a file is removed from the project
-		if(ood_files.Count > 0 || IsProjectDirty(CurrentProject, ModuleMapFile))
-		{
-			var old_module_map = DeserializeIfExists<ModuleMap>(ModuleMapFile);
-			var old_src_to_entry = GetModuleMap_SrcToEntry(old_module_map);
-			foreach(var entry in src_to_item) {
-				var src_file = entry.Key; var item = entry.Value;
-				if(ood_files.Contains(src_file)) continue;
-				ModuleMap.Entry entry_to_add = null;
-				string def_file = item.GetMetadata("CppM_ModuleDefinitionFile").ToString();
-				if(old_module_map != null && NewerThan(ModuleMapFile, def_file)) {
-					if(!old_src_to_entry.TryGetValue(src_file, out entry_to_add)) {
-						Log.LogMessage(MessageImportance.High, "ERROR: module map {0} created after " + 
-							"definition file {1}, but does not contain an entry for " + 
-							"source file {2} ??", ModuleMapFile, def_file, src_file);
-						return false;
+		foreach(var group in items_by_project) {
+			var target = group.Key;
+			var module_map_file = target.int_dir + ModuleMapFile;
+			var module_map = target.map;
+
+			// even if all of the files up to date, it's still possible
+			// for the module map to be out of date, e.g if a file is removed from the project
+			if(nr_ood > 0 || IsProjectDirty(target.project.FullPath, module_map_file))
+			{
+				var old_module_map = DeserializeIfExists<ModuleMap>(module_map_file);
+				var old_src_to_entry = GetModuleMap_SrcToEntry(old_module_map);
+				foreach(var item in itemset.Items) {
+					var src_file = item.path;
+					if(item.is_ood) continue;
+					ModuleMap.Entry entry_to_add = null;
+					string def_file = item.GetMetadata("CppM_ModuleDefinitionFile");
+					// if a source file is ood that means it (or some header it includes)
+					// is newer than the module definition file
+					// so if it's up to date we could just read the definition file
+					// but it should be faster to read the definition from the module map file instead
+					if(old_module_map != null && NewerThan(module_map_file, def_file)) {
+						if(!old_src_to_entry.TryGetValue(src_file, out entry_to_add)) {
+							throw new System.Exception(String.Format("ERROR: module map {0} created after " + 
+								"definition file {1}, but does not contain an entry for " + 
+								"source file {2} ??", module_map_file, def_file, src_file));
+						}
+					} else {
+						// unless the last preprocess didn't finish successfully
+						var module_def = DeserializeIfExists<ModuleDefinition>(def_file);
+						entry_to_add = ModuleMap.Entry.create(src_file, def_file, module_def);
 					}
-				} else {
-					var module_def = DeserializeIfExists<ModuleDefinition>(def_file);
-					entry_to_add = ModuleMap.Entry.create(src_file, module_def);
+					module_map.entries.Add(entry_to_add);
 				}
-				module_map.entries.Add(entry_to_add);
+				
+				SerializeToFile(module_map, module_map_file);
+			} else {
+				File.SetLastWriteTimeUtc(module_map_file, System.DateTime.UtcNow);
 			}
-			
-			SerializeToFile(module_map, ModuleMapFile);
-		} else {
-			File.SetLastWriteTimeUtc(ModuleMapFile, System.DateTime.UtcNow);
 		}
-		//return false;
-		//Log.LogMessage(MessageImportance.High, "test: {0}", serializer.Serialize(module_map));
 		
 		return true;
 	}
 	
-	public class GlobalModuleMap
+	//info related to a collection of source files that form a project
+	public class Target
 	{
 		public ModuleMap map = null;
 		public Project project = null;
+		public string int_dir = null;
+		public List<Node> nodes = new List<Node>();
+		public string ninja = "";
 	}
 	
-	public class GlobalModuleMapNode
+	//a node in the build DAG
+	public class Node
 	{
-		public GlobalModuleMap map = null;
+		public Target target = null;
 		public ModuleMap.Entry entry = null;
 		
 		public bool visited = false;
-		public List<GlobalModuleMapNode> imports_nodes = new List<GlobalModuleMapNode>();
-		public List<GlobalModuleMapNode> imported_by_nodes = new List<GlobalModuleMapNode>();
+		public List<Node> imports_nodes = new List<Node>();
+		public List<Node> imported_by_nodes = new List<Node>();
 	}
 	
-	Dictionary<string, GlobalModuleMapNode> global_module_to_node = new Dictionary<string, GlobalModuleMapNode>();
-	Dictionary<string, GlobalModuleMapNode> local_source_to_node = new Dictionary<string, GlobalModuleMapNode>();
-	List<GlobalModuleMap> all_global_module_maps = new List<GlobalModuleMap>();
-	Dictionary<string, TLogSet> src_to_tlog_set_pp = new Dictionary<string, TLogSet>();
+	Dictionary<string, Node> module_to_node = new Dictionary<string, Node>();
+	Target root_target = null;
+	List<Target> all_targets = new List<Target>();
 	
-	bool ExecuteTask(Task t, string measure_message = null) {
+	delegate T MeasureFunc<T>();
+	T CallMeasured<T>(string measure_message, MeasureFunc<T> f) {
 		if(measure_message == null)
-			return t.Execute();
+			return f();
 		var sw = new Stopwatch();
 		sw.Start();
-		bool ret = t.Execute();
+		T ret = f();
 		sw.Stop();
 		Log.LogMessage(MessageImportance.High, "{0} finished in {1}s", measure_message, sw.ElapsedMilliseconds / 1000.0 );
 		return ret;
 	}
 	
-	bool GetGlobalModuleMap()
+	bool ExecuteTask(Task t, string measure_message = null) {
+		return CallMeasured<bool>(measure_message, () => {
+			return t.Execute();
+		});
+	}
+	
+	bool GetNodes(ItemSet itemset)
 	{
-		// unless some specific files/projects are manually selected (to build only that)
-		// the references of this project are assumed to have been built already
-		// (either by the IDE, or by passing BuildProjectReferences=true to MSBuild)
-		if(CL_Input_Manually_Selected.Length > 0 && ProjectReference.Length > 0) {
-			// todo: use the projectcollection's already loaded projects to improve performance
-			Stack<String> properties = new Stack<String>();
-			properties.Push("BuildingInsideVisualStudio=false");
-			properties.Push("CppM_PreProcess_Only=true");
-			properties.Push("BuildProjectReferences=true");
-			var build = new MSBuild {
-				BuildEngine = this.BuildEngine,
-				Properties = properties.ToArray(),
-				Projects = ProjectReference,
-				Targets = new String[] { "ClCompile" }
-			};
-			Log.LogMessage(MessageImportance.High, "preprocessing project subtree");
-			if(!ExecuteTask(build, "preprocessing project subtree"))
-				return false;
-			Log.LogMessage(MessageImportance.High, "compiling");
-		}
-		
-		var project_source_to_node = new Dictionary<string, GlobalModuleMapNode>();
-		
-		// todo: try to keep the whole project tree and the global module map in memory 
+		// todo: try to keep the whole project tree in memory 
 		// rather than reloading the subtrees over and over again during a build
 		// todo: maybe parallelize this ?
-		foreach(Project project in project_collection.LoadedProjects) {
-			var project_file = project.FullPath;
-			
-			string module_map_file = project.GetPropertyValue("CppM_ModuleMapFile");
-			// not an error if modules are not enabled in the project
-			if(module_map_file == "")
-				continue;
-			ModuleMap module_map = DeserializeIfExists<ModuleMap>(module_map_file);
+		// todo: look for import cycles!
+		foreach(var target in all_targets) {
 			// we expect the module map to be up to date at this point
-			if(module_map == null) {
-				Log.LogMessage(MessageImportance.High, "ERROR: module map '{0}' does not exist", module_map_file);
-				return false;
-			}
-				
-			var global_map = new GlobalModuleMap{ map = module_map, project = project };
-			all_global_module_maps.Add(global_map);
-			
-			var source_to_node = (project_file == CurrentProject ? local_source_to_node : project_source_to_node);
-			source_to_node.Clear();
-			
+			ModuleMap module_map = Deserialize<ModuleMap>(target.int_dir + ModuleMapFile);
 			foreach(ModuleMap.Entry entry in module_map.entries) {
-				var node = new GlobalModuleMapNode {
-					map = global_map,
+				var node = new Node {
+					target = target,
 					entry = entry
 				};
 				// imports_nodes and imported_by_nodes will be filled in later if needed
-				
 				if(entry.exported_module != "") {
-					if(global_module_to_node.ContainsKey(entry.exported_module)) {
+					if(module_to_node.ContainsKey(entry.exported_module)) {
 						Log.LogMessage(MessageImportance.High, "duplicate module {0}", entry.exported_module);
 						return false;
 					}
-					global_module_to_node.Add(entry.exported_module, node);
+					module_to_node.Add(entry.exported_module, node);
 				}
-				source_to_node.Add(entry.source_file, node);
+				//this might not be loaded for files in other projects
+				if(target == root_target) // todo: check that instead
+					itemset.Get(entry.source_file).node = node;
+				target.nodes.Add(node);
 			}
 		}
 		
@@ -749,28 +771,34 @@ public class CppM_CL : Task
 	}
 	
 	// todo: use visitor colors ?
-	void ClearVisited(GlobalModuleMapNode node) {
+	void ClearVisited(Node node) {
 		if(!node.visited)
 			return;
 		node.visited = false;
-		foreach(GlobalModuleMapNode imported_node in node.imports_nodes)
+		foreach(Node imported_node in node.imports_nodes)
 			ClearVisited(imported_node);
 	}
 	
-	string GetSingleModuleReference(GlobalModuleMapNode node) {
-		if(node.entry.bmi_file == "")
+	string GetSingleModuleReference(Node node) {
+		if(node.entry.cmi_file == "")
 			return "";
-		string prefix = !IsLLVM() ? "/module:reference \"" : (
-			"-Xclang \"-fmodule-file=" + node.entry.exported_module + "=");
-		return prefix + node.entry.bmi_file + "\" ";
+		string prefix = "";
+		if(IsLLVM()) {
+			prefix = "-Xclang \"-fmodule-file=";
+			if(!node.entry.importable_header)
+				prefix += node.entry.exported_module + "=";
+		} else {
+			prefix = "/module:reference \"";
+		}
+		return prefix + node.entry.cmi_file + "\" ";
 	}
 	
-	string GetModuleReferences(GlobalModuleMapNode node, bool root) {
+	string GetModuleReferences(Node node, bool root) {
 		if(node.visited)
 			return "";
 		node.visited = true;
 		string ret = root ? "" : GetSingleModuleReference(node);
-		foreach(GlobalModuleMapNode imported_node in node.imports_nodes)
+		foreach(Node imported_node in node.imports_nodes)
 			ret += GetModuleReferences(imported_node, false);
 		return ret;
 	}
@@ -799,87 +827,79 @@ public class CppM_CL : Task
 	
 	// fix clang warning : non-portable path to file .. specified path differs in case from file name on disk
 	string PortablePath(string str) {
-		return !IsLLVM() ? str : GetProperFilePathCapitalization(str).Replace("\\", "/");
+		return GetProperFilePathCapitalization(str).Replace("\\", "/");
 	}
 	
-	void GenerateNinjaForNode(GlobalModuleMapNode node, ref string ninja)
+	void GenerateNinjaForNode(Node node, bool only_current)
 	{
 		if(node.visited)
-			return; // if already visited then don't add additional references
+			return;
 		node.visited = true;
 		
 		foreach(string import in node.entry.imported_modules) {
-			GlobalModuleMapNode import_node = null;
-			if(!global_module_to_node.TryGetValue(import, out import_node)) {
+			Node import_node = null;
+			if(!module_to_node.TryGetValue(import, out import_node)) {
 				Log.LogMessage(MessageImportance.High, "imported module '{0}' not found in global module map", import);
 				throw new ModuleNotFoundException();
 			}
 			// downward edges are needed in the whole subtree for the references generation
 			node.imports_nodes.Add(import_node);
-			GenerateNinjaForNode(import_node, ref ninja);
+			GenerateNinjaForNode(import_node, only_current);
 		}
 		
-		string src_file = node.entry.source_file;
-		// we don't need to create rules for files in other projects
-		if(!src_to_tlog_set_pp.ContainsKey(src_file))
+		// we may not need to create rules for files in other projects
+		if(only_current && node.target != root_target)
 			return;
 		
-		bool is_module = (node.entry.bmi_file != "");
-		string object_file_path = node.entry.cl_params["ObjectFileName"] + Path.GetFileNameWithoutExtension(src_file) + ".obj";
+		bool is_module = (node.entry.exported_module != "");
 		string outputs = "";
 		if(is_module) {
-			if(IsLLVM()) // for LLVM we generate the bmi file first
-				outputs = NinjaEscape(node.entry.bmi_file);
+			if(IsLLVM()) // for LLVM we generate the cmi file first
+				outputs = NinjaEscape(node.entry.cmi_file);
 			else
-				outputs = NinjaEscape(object_file_path) + " " + NinjaEscape(node.entry.bmi_file);
+				outputs = NinjaEscape(node.entry.obj_file) + " " + NinjaEscape(node.entry.cmi_file);
 		} else {
-			outputs = NinjaEscape(object_file_path);
+			outputs = NinjaEscape(node.entry.obj_file);
 		}
 		
-		var tlog_set_pp = src_to_tlog_set_pp[src_file]; // todo: add a field to the node ?
-		var inputs = NinjaEscape(src_file) + " " + 
-			String.Join(" ", node.imports_nodes.Select(n => NinjaEscape(n.entry.bmi_file))) + " " +
-			String.Join(" ", tlog_set_pp.inputs.Select(i => NinjaEscape(i)));
+		var inputs = String.Join(" ", node.imports_nodes.Select(n => n.entry.cmi_file)
+			.Append(node.entry.mdef_file).Select(f => NinjaEscape(f)));
 		
 		ClearVisited(node);
-		// todo: store the command in the entry instead of generating it again?
-		string base_command = GetBaseCommand(node.entry.cl_params, false) + " " + 
-			GetModuleReferences(node, true);
+		string base_command = node.entry.base_command + " " + GetModuleReferences(node, true);
 		string command = base_command + GetModuleArgsForNode(node);
 		
-		ninja += String.Format("build {0}: cc {1}\n cmd = {2}\n", outputs, inputs, command);
+		node.target.ninja += String.Format("build {0}: cc {1}\n cmd = {2}\n", outputs, inputs, command);
 		if(is_module && IsLLVM()) {
-			outputs = NinjaEscape(object_file_path);
-			ninja += String.Format("build {0}: cc {1}\n cmd = {2}\n", outputs, inputs, base_command);
+			outputs = NinjaEscape(node.entry.obj_file);
+			node.target.ninja += String.Format("build {0}: cc {1}\n cmd = {2}\n", outputs, inputs, base_command);
 		}
-		// todo: add cmi hashing
+		// todo: add cmi hashing, maybe use tracker.exe as well ?
 	}
 	
-	bool GenerateNinjaFiles() {
-		string contents = "rule cc\n command = $cmd\n";
+	bool GenerateNinjaFiles(bool only_current) {
+		// generate a build file to build only the current project or the entire subtree
+		// todo: try not to regenerate the whole thing on every build
+		var gen_for = !only_current ? all_targets :
+			new List<Target>{root_target};
+		foreach(var map in gen_for)
+			map.ninja = "rule cc\n command = $cmd\n";
 		try {
-			foreach(var entry in local_source_to_node)
-				GenerateNinjaForNode(entry.Value, ref contents);
+			foreach(var node in root_target.nodes)
+				GenerateNinjaForNode(node, only_current);
 		} catch(ModuleNotFoundException) {
 			return false;
 		}
-		File.WriteAllText(NinjaBuildFile(IntDir), contents);
-		
-		// the loaded project collection already contains the set of transitively referenced projects
-		contents = "subninja " + NinjaEscape(NinjaBuildFile(IntDir)) + "\n";
-		var current_project = project_collection.LoadProject(CurrentProject);
-		foreach(Project project in project_collection.LoadedProjects) {
-			var project_file = project.FullPath;
-			if(project_file == CurrentProject) continue;
-			var int_dir = project.GetPropertyValue("CppM_IntDir_FullPath");
-			if(int_dir == "") continue; // e.g for the cmake generated ZERO_CHECK project
-			contents += String.Format("subninja {0}\n", NinjaEscape(NinjaBuildFile(int_dir)));
-		}
-		File.WriteAllText(NinjaRecursiveBuildFile(IntDir), contents);
+		foreach(var map in gen_for)
+			File.WriteAllText(map.int_dir + NinjaBuildFile, map.ninja);
+		// generate another build file that builds both the current project,
+		// as well as all of its transitively referenced projects
+		File.WriteAllLines(IntDir + NinjaRecursiveBuildFile, all_targets.Select(
+			map => "subninja " + NinjaEscape(map.int_dir + NinjaBuildFile)));
 		return true;
 	}
 	
-	string GetModuleArgsForNode(GlobalModuleMapNode node) {
+	string GetModuleArgsForNode(Node node) {
 		string args = "";
 		if(IsLLVM()) {
 			if(node.entry.exported_module != "") {
@@ -888,7 +908,7 @@ public class CppM_CL : Task
 						"-Xclang -fmodule-name=" + node.entry.exported_module + " ";
 				else
 					args += "-Xclang -emit-module-interface ";
-				args += "-o \"" + node.entry.bmi_file + "\" ";
+				args += "-o \"" + node.entry.cmi_file + "\" ";
 			}
 		} else {
 			if(node.entry.exported_module != "") {
@@ -896,7 +916,7 @@ public class CppM_CL : Task
 					args += "/module:export /module:name " + node.entry.exported_module + " ";
 				else
 					args += "/module:interface ";
-				args += "/module:output \"" + node.entry.bmi_file + "\" ";
+				args += "/module:output \"" + node.entry.cmi_file + "\" ";
 				// AdditionalOptions already contains /modules:stdifcdir
 			}
 		}
@@ -904,45 +924,98 @@ public class CppM_CL : Task
 		return args;
 	}
 	
-	string GetSelectedNinjaTargets()
+	string GetSelectedNinjaTargets(ItemSet itemset)
 	{
-		var targets = String.Join("\" \"", CL_Input_Manually_Selected.Select(
-			i => local_source_to_node[ NormalizeFilePath(i.GetMetadata("Identity")) ].entry.bmi_file));
+		var targets = String.Join("\" \"", CL_Input_Manually_Selected.Select(i => {
+			var entry = itemset.Get(i.GetMetadata("Identity")).node.entry;
+			string ret = entry.obj_file;
+			if(IsLLVM() && entry.exported_module != "")
+				ret += "\" \"" + entry.cmi_file;
+			return ret;
+		}));
 		return targets == "" ? "" : "\"" + targets + "\"";
 	}
 	
-	bool Compile()
-	{	
+	bool Compile(ItemSet itemset, bool only_current)
+	{
 		Log.LogMessage(MessageImportance.High, "CppM: Compile");
 		
-		if(!GetGlobalModuleMap()) {
+		if(!GetNodes(itemset)) {
 			Log.LogMessage(MessageImportance.High, "failed to read global module map");
 			return false;
 		}
 		
-		if(!GenerateNinjaFiles())
+		if(!GenerateNinjaFiles(only_current))
 			return false;
 
-		var ninja_file = NinjaBuildFile(IntDir);
-		if(CL_Input_Manually_Selected.Length > 0)
-			ninja_file = NinjaRecursiveBuildFile(IntDir);
-		
+		// todo: pass -j N to ninja based on the VS settings
+		var ninja_file = IntDir + (only_current ? NinjaBuildFile : NinjaRecursiveBuildFile);
 		var command = String.Format("\"{0}\" -f \"{1}\" {2}", 
-			NinjaExecutablePath, ninja_file, GetSelectedNinjaTargets());
-		var exec_res = ExecuteCommand(command, false);
-		if(!exec_res.success) {
-			if(exec_res.got_exit_code) Log.LogMessage(MessageImportance.High, "ERROR: compilation failed");
+			NinjaExecutablePath, ninja_file, GetSelectedNinjaTargets(itemset));
+		var exec_res = ExecuteCommand(command, measure_message: "ninja");
+		if(exec_res.exit_code != 0) {
+			Log.LogMessage(MessageImportance.High, "ERROR: compilation failed");
 			return false;
 		}
 		return true;
 	}
+	
+	// build this project and all of its transitively referenced projects
+	bool BuildEverything() 
+	{
+		Log.LogMessage(MessageImportance.High, "building project subtree");
+		
+		// collect all the itemset from the transitively referenced projects
+		// try to support any other msbuild customizations that affect the item sets needed for the build
+		
+		// todo: the same source file could appear in multiple projects
+		var itemset = new ItemSet();
+		foreach(var item in CL_Input_All)
+			itemset.Add(item, root_target);
+			
+		// note: the maps in all_targets are in BFS order
+		// so traversing that in reverse order ensures each project is built before its references
+		foreach(var target in Enumerable.Reverse(all_targets)) {
+			// we've already added the items for the current project, don't build it again
+			if(target == root_target) continue;
+			//var path = target.project.GetPropertyValue("MSBuildProjectFullPath");
+			Log.LogMessage(MessageImportance.High, "building {0}", target.project.FullPath);
+			var instance = target.project.CreateProjectInstance(); // project is immutable, instance is not
+			if(!instance.Build("CppM_PreProcess", null)) // todo: build up to ClCompile to be sure we get the right config ?
+				throw new System.Exception("failed to build project");
+			var local_items = instance.GetItems("CppM_CL_Input_All"); // todo: or selected ?
+			foreach(var item in local_items)
+				itemset.Add(item, target);
+			
+			//get the set of impotable headers and generate a header unit module map for this particular project
+			//var all_importable_headers = GetImportableHeaders(project);
+		}
+		
+		ReadTLogs_GetOOD(ref itemset);
+		//Log.LogMessage(MessageImportance.High, "nr items: {0}, nr projects {1}", itemset.Items.Count(), 
+		// todo: should be different importable headers for each project
+		all_importable_headers_tmp = GetImportableHeaders();
+		return PreProcess(itemset) && Compile(itemset, only_current: false);
+	}
+	
+	bool BuildCurrentProject() {
+		all_importable_headers_tmp = GetImportableHeaders();
+		var itemset = ReadTLogs_GetOOD();
+		return PreProcess(itemset) && Compile(itemset, only_current: true);
+	}
 
 	public override bool Execute()
 	{
-		return CreateProjectCollection() && 
-			GetImportableHeaders() &&
-			ReadTLogs_GetOOD() && 
-			PreProcess() &&
-			(PreProcess_Only == "true" || Compile());
+		if(PreProcess_Only == "true") return true;
+		
+		CreateProjectCollection("creating project collection");
+		
+		// unless some specific files/projects are manually selected (to build only that)
+		// the references of this project are assumed to have been built already
+		// (either by the IDE, or by passing BuildProjectReferences=true to MSBuild)
+		if(CL_Input_Manually_Selected.Length > 0 && ProjectReference.Length > 0)
+			return BuildEverything();
+		else
+			return BuildCurrentProject();
 	}
 }

@@ -4,17 +4,15 @@
 		<CppM_TargetsPath 		Condition="'$(CppM_TargetsPath)' 	  ==''">c:\Program Files\cpp_modules\etc\</CppM_TargetsPath>
 		<CppM_ClangPath       	Condition="'$(CppM_ClangPath)'        ==''">c:\Program Files\LLVM\bin</CppM_ClangPath>
 		<CppM_ClangScanDepsPath Condition="'$(CppM_ClangScanDepsPath)'==''">$(CppM_ClangPath)\clang-scan-deps.exe</CppM_ClangScanDepsPath>
-		<CppM_NinjaExePath 		Condition="'$(CppM_NinjaExePath)'	  ==''">$(VSAPPIDDIR)\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe</CppM_NinjaExePath>
+		<CppM_NinjaExePath 		Condition="'$(CppM_NinjaExePath)'	  ==''">$(VCIDEInstallDir)\..\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe</CppM_NinjaExePath>
 		
 		<CppM_IntDir_FullPath>$(MSBuildProjectDirectory)\$(IntDir)</CppM_IntDir_FullPath>
 		<CppM_IntDir_FullPath Condition="$([System.IO.Path]::IsPathRooted('$(IntDir)'))">$(IntDir)</CppM_IntDir_FullPath>
 		
-		<CppM_ModuleMapFile>$(CppM_IntDir_FullPath)module_map.json</CppM_ModuleMapFile>
-		<CppM_BMI_Path>$(CppM_IntDir_FullPath)</CppM_BMI_Path>
-		<CppM_PP_CompilationDatabase>$(CppM_IntDir_FullPath)pp_commands.json</CppM_PP_CompilationDatabase>
+		<CppM_CMI_Path>$(CppM_IntDir_FullPath)</CppM_CMI_Path>
 		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
 		
-		<CppM_BMI_Ext>.ifc</CppM_BMI_Ext>
+		<CppM_CMI_Ext>.ifc</CppM_CMI_Ext>
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
 		
 		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
@@ -27,11 +25,16 @@
 		<LibToolExe>$(CppM_ClangPath)\llvm-lib.exe</LibToolExe>
 	</PropertyGroup>
 	
+	<ItemDefinitionGroup>
+		<ClCompile Condition="'$(PlatformToolset)'!='llvm' and '$(PlatformToolset)'!='ClangCl'">
+			<EnableModules>true</EnableModules>
+			<LanguageStandard>stdcpplatest</LanguageStandard>
+		</ClCompile>
+	</ItemDefinitionGroup>
+	
 	<ItemGroup>
 		<CppM_CurrentProject Include="$(ProjectPath)"> <Project>$(ProjectGuid)</Project> </CppM_CurrentProject>
-		<PropertyPageSchema Include="$(CppM_TargetsPath)cpp_modules.xml">
-			<!--<Context>Project</Context>!-->
-		</PropertyPageSchema>
+		<PropertyPageSchema Include="$(CppM_TargetsPath)cpp_modules.xml" />
 	</ItemGroup>
 	
 	<ItemGroup>
@@ -47,20 +50,15 @@
 	<UsingTask TaskName="CppM_CL" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll" >
 		<ParameterGroup>
 			<CL_Input_All ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<CL_Input_Selected ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
 			<CL_Input_Manually_Selected ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
 			<CurrentProjectHolder ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
 			<ProjectReference ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
-			<ModuleMapFile ParameterType="System.String" Required="true" />
 			<SolutionFilePath ParameterType="System.String" Required="true" />
 			<Configuration ParameterType="System.String" Required="true" />
 			<Platform ParameterType="System.String" Required="true" />
 			<PlatformToolset ParameterType="System.String" Required="true" />
 			<PreProcess_Only ParameterType="System.String" Required="true" />
-			<BMI_Path ParameterType="System.String" Required="true" />
-			<BMI_Ext ParameterType="System.String" Required="true" />
 			<ClangScanDepsPath ParameterType="System.String" Required="true" />
-			<PP_CompilationDatabase ParameterType="System.String" Required="true" />
 			<IntDir ParameterType="System.String" Required="true" />
 			<NinjaExecutablePath ParameterType="System.String" Required="true" />
 		</ParameterGroup>
@@ -85,16 +83,17 @@
 
 	<Target Name="CppM_PreProcess"
 		Condition="'@(ClCompile)' != ''"
-		BeforeTargets="SelectClCompile;CppM_BeforeClean">
+		BeforeTargets="SelectClCompile;CppM_BeforeClean"
+		DependsOnTargets="FixupCLCompileOptions">
 		<!-- <Message Text="module preprocess: @(ClCompile)" Importance="High"/> !-->
 		
 		<!-- generated from the CL task Microsoft.CppCommon.targets' ClCompile target 
 			 by replacing the regex ' +(\w+) +="([^"]+)"' with '<\1>\2</\1>'  !-->
 		<ItemGroup>
 			<CppM_CL_Input_All Include="@(ClCompile)" Condition="'%(ClCompile.PrecompiledHeader)' != 'Create' and '%(ClCompile.ExcludedFromBuild)'!='true' and '%(ClCompile.CompilerIteration)' == '' and @(ClCompile) != ''">
-				<CppM_ModuleDefinitionFile>$(IntDir)%(CLCompile.FileName)$(CppM_Mdef_Suffix)</CppM_ModuleDefinitionFile>
-				<CppM_BMI_File>$(IntDir)%(Filename).ifc</CppM_BMI_File>
-				<CppM_ObjectFilePath>$(IntDir)%(Filename).obj</CppM_ObjectFilePath>
+				<CppM_ModuleDefinitionFile>$(CppM_IntDir_FullPath)%(CLCompile.FileName)$(CppM_Mdef_Suffix)</CppM_ModuleDefinitionFile>
+				<CppM_CMI_File>$(CppM_IntDir_FullPath)%(Filename).ifc</CppM_CMI_File>
+				<CppM_ObjectFilePath>$(CppM_IntDir_FullPath)%(Filename).obj</CppM_ObjectFilePath>
 				<BuildingInIDE>$(BuildingInsideVisualStudio)</BuildingInIDE>
 				<!--<Sources>@(ClCompile)</Sources>!-->
 				<Sources>%(ClCompile.FullPath)</Sources>
@@ -121,27 +120,17 @@
 		  DependsOnTargets="SelectClCompile">
 		<!-- <Message Text="clcompile: @(ClCompile)" Importance="High"/> !-->
 
-		<ItemGroup>
-			<CppM_CL_Input_Removed Include="@(CppM_CL_Input_All)" Exclude="@(CLCompile)" />
-			<CppM_CL_Input_Selected Include="@(CppM_CL_Input_All)" Exclude="@(CppM_CL_Input_Removed)"/> 
-		</ItemGroup>
-
 		<CppM_CL
 			CL_Input_All="@(CppM_CL_Input_All)"
-			CL_Input_Selected="@(CppM_CL_Input_Selected)"
 			CL_Input_Manually_Selected="@(SelectedFiles)"
 			CurrentProjectHolder="@(CppM_CurrentProject)"
 			ProjectReference="@(ProjectReference)" 
-			ModuleMapFile="$(CppM_ModuleMapFile)"
 			SolutionFilePath="$(SolutionPath)"
 			Configuration="$(Configuration)"
 			Platform="$(Platform)"
 			PlatformToolset="$(PlatformToolset)"
 			PreProcess_Only="$(CppM_PreProcess_Only)"
-			BMI_Path="$(CppM_BMI_Path)"
-			BMI_Ext="$(CppM_BMI_Ext)"
 			ClangScanDepsPath="$(CppM_ClangScanDepsPath)"
-			PP_CompilationDatabase="$(CppM_PP_CompilationDatabase)"
 			IntDir="$(CppM_IntDir_FullPath)"
 			NinjaExecutablePath="$(CppM_NinjaExePath)"
 		/>
@@ -157,11 +146,12 @@
 	<Target Name="CppM_BeforeClean">
 		<Message Text="CppM_BeforeClean" Importance="High"/>
 		<ItemGroup>
+			<CppM_To_Delete_In_IntDir Include="pp.modulemap;pp_commands.json;module_map.json;build.ninja;build_rec.ninja" />
+			<CppM_To_Delete Include="@(CppM_To_Delete_In_IntDir->'$(CppM_IntDir_FullPath)%(FileName)%(Extension)')" />
 			<CppM_To_Delete Include="$(TLogLocation)pp\*;$(TLogLocation)src\*" />
 			<CppM_To_Delete Include="@(CppM_CL_Input_All->'%(ObjectFileName)%(FileName).i')" />
-			<CppM_To_Delete Include="$(CppM_BMI_Path)*$(CppM_BMI_Ext)" />
+			<CppM_To_Delete Include="$(CppM_CMI_Path)*$(CppM_CMI_Ext)" />
 			<CppM_To_Delete Include="@(CppM_CL_Input_All->'%(CppM_ModuleDefinitionFile)')" />
-			<CppM_To_Delete Include="$(CppM_ModuleMapFile);$(CppM_OutOfDate_File)" />
 		</ItemGroup>
 		<Delete Files="@(CppM_To_Delete)" />
 	</Target>
