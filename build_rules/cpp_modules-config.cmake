@@ -33,6 +33,11 @@ function(target_cpp_modules targets)
 			${CPPM_TARGETS_PATH}/cpp_modules.targets
 		)
 	endforeach()
+	
+	add_library(_CPPM_ALL_BUILD EXCLUDE_FROM_ALL ${CPPM_TARGETS_PATH}/dummy.cpp)
+	set_property(TARGET _CPPM_ALL_BUILD PROPERTY EXCLUDE_FROM_DEFAULT_BUILD TRUE)
+	add_dependencies(_CPPM_ALL_BUILD ${ARGV})
+	target_link_libraries(_CPPM_ALL_BUILD ${CPPM_TARGETS_PATH}/cpp_modules.targets)
 endfunction()
 
 function(target_cpp_legacy_headers target)

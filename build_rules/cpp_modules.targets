@@ -14,8 +14,6 @@
 		
 		<CppM_CMI_Ext>.ifc</CppM_CMI_Ext>
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
-		
-		<CppM_PreProcess_Only Condition="'$(CppM_PreProcess_Only)'==''">false</CppM_PreProcess_Only>
 	</PropertyGroup>
 	
 	<!-- with the default VS clang toolset the tools are specified without their full paths !-->
@@ -57,7 +55,6 @@
 			<Configuration ParameterType="System.String" Required="true" />
 			<Platform ParameterType="System.String" Required="true" />
 			<PlatformToolset ParameterType="System.String" Required="true" />
-			<PreProcess_Only ParameterType="System.String" Required="true" />
 			<ClangScanDepsPath ParameterType="System.String" Required="true" />
 			<IntDir ParameterType="System.String" Required="true" />
 			<NinjaExecutablePath ParameterType="System.String" Required="true" />
@@ -81,10 +78,14 @@
 		</Task>
 	</UsingTask>
 
+	<!-- when the user manually selects a particular file to compile, ClCompile is modified to contain only that file
+		 but we need to scan everything anyway so save a copy of it before that happens in SelectClCompile !-->
+	<!-- this target is also executed when building the project subtree, and so the PreBuildEvent
+		 needs to run first e.g to generate sources / update cmake !-->
 	<Target Name="CppM_PreProcess"
 		Condition="'@(ClCompile)' != ''"
 		BeforeTargets="SelectClCompile;CppM_BeforeClean"
-		DependsOnTargets="FixupCLCompileOptions">
+		DependsOnTargets="FixupCLCompileOptions;PreBuildEvent">
 		<!-- <Message Text="module preprocess: @(ClCompile)" Importance="High"/> !-->
 		
 		<!-- generated from the CL task Microsoft.CppCommon.targets' ClCompile target 
@@ -129,7 +130,6 @@
 			Configuration="$(Configuration)"
 			Platform="$(Platform)"
 			PlatformToolset="$(PlatformToolset)"
-			PreProcess_Only="$(CppM_PreProcess_Only)"
 			ClangScanDepsPath="$(CppM_ClangScanDepsPath)"
 			IntDir="$(CppM_IntDir_FullPath)"
 			NinjaExecutablePath="$(CppM_NinjaExePath)"
@@ -144,7 +144,7 @@
 		<CleanDependsOn> CppM_BeforeClean; $(CleanDependsOn); </CleanDependsOn>
 	</PropertyGroup>
 	<Target Name="CppM_BeforeClean">
-		<Message Text="CppM_BeforeClean" Importance="High"/>
+		<!-- <Message Text="CppM_BeforeClean" Importance="High"/> !-->
 		<ItemGroup>
 			<CppM_To_Delete_In_IntDir Include="pp.modulemap;pp_commands.json;module_map.json;build.ninja;build_rec.ninja" />
 			<CppM_To_Delete Include="@(CppM_To_Delete_In_IntDir->'$(CppM_IntDir_FullPath)%(FileName)%(Extension)')" />

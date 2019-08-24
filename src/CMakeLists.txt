@@ -19,6 +19,7 @@ if(WIN32)
 		../build_rules/cpp_modules.cs
 		../build_rules/cpp_modules.xml
 		../build_rules/Newtonsoft.Json.dll
+		../build_rules/dummy.cpp
 		DESTINATION etc
 	)
 	
