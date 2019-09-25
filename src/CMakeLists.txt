@@ -1,8 +1,4 @@
-set(src
-	main.cpp
-)
-
-add_executable(cpp_modules ${src})
+add_executable(cpp_modules main.cpp)
 
 set_property(TARGET cpp_modules PROPERTY CXX_STANDARD 17)
 
@@ -28,3 +24,6 @@ if(WIN32)
 		DESTINATION cmake
 	)
 endif()
+
+add_subdirectory(scanner)
+add_subdirectory(test)

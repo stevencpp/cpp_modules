@@ -11,6 +11,8 @@
 		
 		<CppM_CMI_Path>$(CppM_IntDir_FullPath)</CppM_CMI_Path>
 		<CppM_TLogLocation_FullPath>$(MSBuildProjectDirectory)\$(TLogLocation)</CppM_TLogLocation_FullPath>
+		<!-- todo: maybe we could use the same db for all platforms/configurations ? prefix the target names with it ? !-->
+		<CppM_DB_Path>$(SolutionDir)\intermediate\$(Configuration)\$(Platform)</CppM_DB_Path>
 		
 		<CppM_CMI_Ext>.ifc</CppM_CMI_Ext>
 		<CppM_Mdef_Suffix>_mdef.json</CppM_Mdef_Suffix>
@@ -45,7 +47,7 @@
 		<!--<CppM_Legacy_Headers Include="@(CLCompile)" Condition="'%(ClCompile.CppM_Header_Unit)' == 'true'" />!-->
 	</ItemGroup>
 	
-	<UsingTask TaskName="CppM_CL" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll" >
+	<UsingTask TaskName="CppM_CL" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
 		<ParameterGroup>
 			<CL_Input_All ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
 			<CL_Input_Manually_Selected ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
@@ -58,6 +60,8 @@
 			<ClangScanDepsPath ParameterType="System.String" Required="true" />
 			<IntDir ParameterType="System.String" Required="true" />
 			<NinjaExecutablePath ParameterType="System.String" Required="true" />
+			<DB_Path ParameterType="System.String" Required="true" />
+			<JustCleanItems ParameterType="System.String" Required="true" />
 		</ParameterGroup>
 		<Task>
 			<!-- for the CL task !-->
@@ -73,6 +77,8 @@
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll"/>
 			<!-- for Newtonsoft.Json !-->
 			<Reference Include="$(CppM_TargetsPath)Newtonsoft.Json.dll" />
+			<!-- cppm_scanner !-->
+			<Reference Include="$(CppM_TargetsPath)cppm_scanner_cs.dll" />
 			
 			<Code Type="Class" Language="cs" Source="$(CppM_TargetsPath)cpp_modules.cs" />
 		</Task>
@@ -133,6 +139,8 @@
 			ClangScanDepsPath="$(CppM_ClangScanDepsPath)"
 			IntDir="$(CppM_IntDir_FullPath)"
 			NinjaExecutablePath="$(CppM_NinjaExePath)"
+			DB_Path="$(CppM_DB_Path)"
+			JustCleanItems="false"
 		/>
 		
 		<!-- CppM_StopBuild intentionally does not exist so that an error really stops 
@@ -154,6 +162,12 @@
 			<CppM_To_Delete Include="@(CppM_CL_Input_All->'%(CppM_ModuleDefinitionFile)')" />
 		</ItemGroup>
 		<Delete Files="@(CppM_To_Delete)" />
+		<!-- the item OOD data is stored in the DB but we can't just delete that because it's shared with other targets !-->
+		<CppM_CL
+			CL_Input_All="@(CppM_CL_Input_All)"	CL_Input_Manually_Selected="" CurrentProjectHolder="@(CppM_CurrentProject)" 
+			ProjectReference=""  SolutionFilePath="x" Configuration="x" Platform="x" PlatformToolset="x" ClangScanDepsPath="x" 
+			IntDir="x" NinjaExecutablePath="x" DB_Path="$(CppM_DB_Path)" JustCleanItems="true"
+		/>
 	</Target>
 	
 	<!-- without this VS sometimes fails notice that the project is out of date !-->
