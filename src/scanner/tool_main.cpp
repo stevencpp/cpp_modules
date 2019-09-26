@@ -15,7 +15,7 @@ int main(int argc, const char * argv[]) {
 
 	std::string_view tool_type = argv[1], tool_path = argv[2];
 
-	Scanner scanner;
+	cppm::Scanner scanner;
 
 	return 0;
 }

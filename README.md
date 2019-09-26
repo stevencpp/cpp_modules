@@ -1,3 +1,5 @@
+[![Build status](https://ci.appveyor.com/api/projects/status/4gexbm58k239kd5n/branch/master?svg=true)](https://ci.appveyor.com/project/stevencpp/cpp-modules/branch/master)
+
 # cpp_modules
 
 ### 1. What is this ?
@@ -22,7 +24,7 @@ A patched clang-scan-deps is used to extract the dependencies. Information for i
 
 ### 4. How to build and install it ?
 
-- get the latest preview of Visual Studio 2019
+- get the latest preview of Visual Studio 2019 and enable the C++ Modules component in the installer
 - `vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows`
 - install a patched clang-scan-deps.exe to `C:\Program Files\LLVM`
 - generate Win32 VS solutions for this repo with CMake and the vcpkg toolchain file

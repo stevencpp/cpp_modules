@@ -56,6 +56,7 @@ target_link_libraries(cppm_scanner_tool
 set_property(TARGET cppm_scanner_tool PROPERTY CXX_STANDARD 17)
 
 # ==== C# wrapper ====
+if(MSVC)
 
 add_library(cppm_scanner_cs SHARED
 	wrapper_cs.cpp
@@ -75,3 +76,5 @@ set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
 install(TARGETS cppm_scanner_cs DESTINATION etc)
 install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION etc)
 install(FILES "$<TARGET_FILE:lmdb>" DESTINATION etc)
+
+endif(MSVC)

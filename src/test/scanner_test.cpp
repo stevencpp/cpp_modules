@@ -278,7 +278,11 @@ public:
 		config.observer = &collector;
 
 		cppm::Scanner scanner;
+		
+		timer t;
+		t.start();
 		scanner.scan(config);
+		t.stop();
 
 		results = std::move(collector.all_infos);
 		nr_results = collector.nr_results;

@@ -737,8 +737,6 @@ std::string Scanner::scan(const Config & cc)
 	if (cc.items.empty())
 		return "";
 
-	auto start = std::chrono::high_resolution_clock::now();
-
 	Config c = cc;
 	if (c.tool_path.empty()) throw std::runtime_error("must provide a tool path");
 	if (c.db_path.empty()) throw std::runtime_error("must provide a db path");
@@ -756,8 +754,6 @@ std::string Scanner::scan(const Config & cc)
 		c.build_start_time, c.concurrent_targets, c.file_tracker_running,
 		c.observer);
 
-	auto end = std::chrono::high_resolution_clock::now();
-	fmt::print("elapsed: {} ms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 	return ret;
 }
 

@@ -94,8 +94,8 @@ public class CppM_CL : Task
 		var itemset = InitItemSet();
 		var scanner = new Scanner();
 		var scan_items = GetScanItems(itemset, add_commands: false);
-		String ret = scanner.clean(DB_Path, scan_items);
-		Log.LogMessage(MessageImportance.High, "scanner returned {0}", ret);
+		scanner.clean(DB_Path, scan_items);
+		//Log.LogMessage(MessageImportance.High, "scanner returned {0}", ret);
 		return true;
 	}
 	
@@ -115,7 +115,7 @@ public class CppM_CL : Task
 			};
 			this.BuildEngine4.RegisterTaskObject(key, shared_build_state, lifetime, allowEarlyCollection: false);
 		}
-		Log.LogMessage(MessageImportance.High, "build start time: {0}", shared_build_state.build_start_time);
+		//Log.LogMessage(MessageImportance.High, "build start time: {0}", shared_build_state.build_start_time);
 	}
 	
 	// todo: replace this with a compiler enum
@@ -611,10 +611,8 @@ public class CppM_CL : Task
 		var observer = new OOD_Deps_Observer { cppm = this, itemset = itemset };
 		
 		Directory.CreateDirectory(DB_Path);
-		String ret = scanner.scan(tool_type, tool_path, DB_Path, int_dir, scan_items,
+		scanner.scan(tool_type, tool_path, DB_Path, int_dir, scan_items,
 			build_start_time, concurrent_tagets, file_tracker_running, observer);
-		
-		Log.LogMessage(MessageImportance.High, "scanner returned {0}", ret);
 		
 		if(false) {
 			// todo: handle various scan errors
@@ -651,7 +649,7 @@ public class CppM_CL : Task
 	
 	bool PreProcess(ItemSet itemset)
 	{
-		Log.LogMessage(MessageImportance.High, "CppM: PreProcess");
+		//Log.LogMessage(MessageImportance.High, "CppM: PreProcess");
 		
 		var items_by_project = itemset.Items.GroupBy(i => i.target); // todo: is this efficient ?
 		foreach(var group in items_by_project) {
@@ -952,7 +950,7 @@ public class CppM_CL : Task
 
 	bool Compile(ItemSet itemset, BuildMode build_mode)
 	{
-		Log.LogMessage(MessageImportance.High, "CppM: Compile");
+		//Log.LogMessage(MessageImportance.High, "CppM: Compile");
 		
 		if(!GetNodes(itemset)) {
 			Log.LogMessage(MessageImportance.High, "failed to read global module map");

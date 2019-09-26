@@ -1,0 +1,15 @@
+language: cpp
+os: windows
+
+script:
+    - git clone https://github.com/microsoft/vcpkg.git || travis_terminate 1
+    - cd vcpkg
+    - ./bootstrap-vcpkg.bat || travis_terminate 1
+    - ./vcpkg.exe install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows || travis_terminate 1
+    - cd ..
+    - mkdir build
+    - cd build
+    - choco install cmake ninja || travis_terminate 1
+    - choco upgrade llvm || travis_terminate 1
+    - cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake || travis_terminate 1
+    - cmake --build . || travis_terminate 1

@@ -1,0 +1,36 @@
+image: Visual Studio 2019
+
+cache:
+- c:\tools\vcpkg\installed\
+- C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.23.28105\ifc\x64
+    
+build_script:
+- cmd: >
+    if not exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.23.28105\ifc\x64\Debug"
+    "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart
+    --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Community"
+    --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
+    
+    vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows
+
+    mkdir build
+    
+    cd build
+    
+    cmake -DCMAKE_TOOLCHAIN_FILE="c:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    -G "Visual Studio 16 2019" -A "Win32"
+    -DCMAKE_INSTALL_PREFIX="C:\Program Files\cpp_modules"
+    ..
+    
+    cmake --build . --config "Debug"
+    
+    cmake --install . --config "Debug"
+    
+test_script:
+- cmd: >
+    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
+    -FileName "C:\Program Files\LLVM\bin\clang-scan-deps.exe"
+    
+    .\src\test\Debug\cppm_test.exe
+    
+    ..\tests\test_all.bat
