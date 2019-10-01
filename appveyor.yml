@@ -11,7 +11,7 @@ build_script:
     --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Community"
     --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
     
-    vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows
+    vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows range-v3:x86-windows
 
     mkdir build
     
@@ -22,7 +22,7 @@ build_script:
     -DCMAKE_INSTALL_PREFIX="C:\Program Files\cpp_modules"
     ..
     
-    cmake --build . --config "Debug"
+    cmake --build . --config "Debug" --parallel
     
     cmake --install . --config "Debug"
     
@@ -31,6 +31,6 @@ test_script:
     appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
     -FileName "C:\Program Files\LLVM\bin\clang-scan-deps.exe"
     
-    .\src\test\Debug\cppm_test.exe
+    cd src\test
     
-    ..\tests\test_all.bat
+    .\Debug\cppm_test.exe [scanner],[msbuild]

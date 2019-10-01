@@ -410,6 +410,10 @@ TEST_CASE("test1", "[scanner]") {
 	test.scan_check({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info } }); // all items were removed from the DB
 
 	test.scan_check({}); // no changes again
+
+	// todo: test command changed
 }
+
+// todo: test build_start_time
 
 } // namespace scanner_test

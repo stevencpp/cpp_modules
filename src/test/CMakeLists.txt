@@ -7,6 +7,8 @@ find_package(fmt CONFIG REQUIRED)
 find_package(lmdb CONFIG REQUIRED)
 find_package(Catch2 CONFIG REQUIRED)
 #find_package(absl CONFIG REQUIRED)
+find_package(range-v3 CONFIG REQUIRED)
+#find_package(reproc++ CONFIG REQUIRED)
 
 #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -14,6 +16,7 @@ add_executable(cppm_test
 	main.cpp
 	scanner_test.cpp
 	depinfo.cpp
+	msbuild.cpp
 	util.h
 	test_config.h
 )
@@ -29,4 +32,6 @@ target_link_libraries(cppm_test
 	#PRIVATE OpenMP::OpenMP_CXX
 	PRIVATE Catch2::Catch2
 	#PRIVATE absl::flat_hash_map absl::hashtablez_sampler
+	PRIVATE meta concepts range-v3
+	#PRIVATE reproc++
 )

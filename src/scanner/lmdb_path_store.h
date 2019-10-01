@@ -274,6 +274,7 @@ struct path_store {
 				throw std::invalid_argument("bad file id");
 			auto& entry = all_entries[file_id];
 			if (auto f_entry = std::get_if<file_entry>(&entry.value.data)) {
+				// todo: don't update the DB if it's the same value ?
 				*f_entry = data_func(idx);
 				if (entry.status != entry_t::new_entry)
 					entry.status = entry_t::updated;

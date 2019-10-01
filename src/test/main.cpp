@@ -8,6 +8,19 @@
 
 #include "test_config.h"
 
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+auto make_chdir_guard() {
+	struct chdir_guard {
+		fs::path current;
+		chdir_guard() : current(fs::current_path()) {}
+		~chdir_guard() { fs::current_path(current); }
+	};
+	return chdir_guard {};
+}
+
 #ifdef _WIN32
 #include <shellapi.h>
 int applyCommandLineFromFile(Catch::Session& session, int argc, char* argv[])
@@ -38,16 +51,16 @@ int applyCommandLineFromFile(Catch::Session& session, int argc, char* argv[]) {
 }
 #endif
 
-int main(int argc, char* argv[])
+int unguarded_main(int argc, char* argv[])
 {
 	Catch::Session session; // There must be exactly one instance
 
 	using namespace Catch::clara;
 	auto config = TestConfig::instance();
 	auto cli = session.cli();
-	for (auto conf_string : config->strings) {
+	for (auto& conf_string : config->strings) {
 		std::string opt_name = "--"; opt_name += conf_string->name;
-		cli |= Opt(conf_string->var, conf_string->description)
+		cli |= Opt(*conf_string, conf_string->description)
 			[opt_name] (conf_string->description);
 	}
 	session.cli(cli);
@@ -76,6 +89,15 @@ int main(int argc, char* argv[])
 	// This clamping has already been applied, so just return it here
 	// You can also do any post run clean-up here
 	return numFailed;
+}
+
+int main(int argc, char* argv[]) {
+	auto chdir_guard = make_chdir_guard();
+	try {
+		return unguarded_main(argc, argv);
+	} catch (...) {
+		return 1;
+	}
 }
 
 // -- need tests for:

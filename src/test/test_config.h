@@ -20,25 +20,14 @@ struct ConfigVar {
 	const char* description;
 };
 
-struct ConfigString : public ConfigVar {
-	std::string var;
+struct ConfigString : public std::string, ConfigVar {
 
 	ConfigString(const char* name, const std::string& default_value, const char* description = "") 
-		: ConfigVar { name, description }, var(default_value)
+		: ConfigVar { name, description }, std::string(default_value)
 	{
 		TestConfig::instance()->strings.push_back(this);
 	}
-
-	operator const char* () {
-		return var.c_str();
-	}
-	operator std::string_view() {
-		return var;
-	}
-	operator std::string& () {
-		return var;
-	}
-	bool empty() const {
-		return var.empty();
+	std::string& str() {
+		return *static_cast<std::string*>(this);
 	}
 };

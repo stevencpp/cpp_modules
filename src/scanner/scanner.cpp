@@ -30,7 +30,7 @@ DECL_STRONG_ID(to_stat_idx_t)
 DECL_STRONG_ID(file_table_idx_t)
 DECL_STRONG_ID_INV(db_target_id, 0)
 #endif
-using cmd_hash_t = std::size_t;
+using cmd_hash_t = std::size_t; // todo: probably needs a bigger hash to avoid collisions ? 
 using item_id_t = std::pair<file_id_t, db_target_id>;
 
 std::string concat_u8_path(std::string_view path, std::string_view filename) {
@@ -77,6 +77,7 @@ struct DB {
 	void update_file_last_write_times(span_map<to_stat_idx_t, file_id_t> files_to_stat,
 		const vector_map<file_id_t, file_time_t>& lwts)
 	{
+		// todo: if the file didn't change, could we avoid updating all the file records ?
 		auto last_stat_time = file_time_t_now();
 
 		path_store.update_file_data(files_to_stat, [&](to_stat_idx_t idx) {
@@ -178,6 +179,7 @@ struct DB {
 
 		data.resize(items.size()); // todo: can we not allocate all this if the DB is empty ?
 
+		// todo: maybe make file_id the key and allow duplicates >
 		auto db = txn_rw.open_db<item_id_t, item_entry>("items");
 
 		for (auto i : items.indices()) {
@@ -547,8 +549,10 @@ struct ScannerImpl {
 
 		db.open(db_path, "scanner.mdb");
 
+		// todo: maybe we could somehow do a read only transaction here
+		// and then switch to a read-write transaction (possibly reading more) only if needed ?
 		db.read_write_transaction();
-		auto target_ids = db.get_target_ids(targets, true);
+		auto target_ids = db.get_target_ids(targets, true); // note: this does some updates currently
 		auto item_data = db.get_item_data(target_ids, item_root_path, items); // returns new file/item ids for files/items not in the db yet
 		// todo: if concurrent_targets == false, it should be more efficient to assume all files are deps ?
 		auto unique_deps = get_unique_deps(item_data.file_deps, item_data.file_id, item_data.max_file_id);
@@ -559,9 +563,12 @@ struct ScannerImpl {
 		// todo: if the log is empty then we can stat items and compute hashes in parallel with scanning
 		get_file_ood(item_root_path, deps_to_stat, file_paths, /*inout: */real_lwt);
 		auto item_ood = get_item_ood(items, item_data, cmd_hashes, real_lwt, /*just for logging*/file_paths); // maybe do the cmd_hashes check later, close txn faster ?
-		// note: the deps in item_data becomes invalid once we start writing to the db
+		// todo: the write could happen in parallel with scanning
+		// note: the deps in item_data become invalid once we start writing to the db
 		db.update_file_last_write_times(deps_to_stat, real_lwt); // also adds new files
 		// changes to:
+		// targets:
+		// - new target ids
 		// files:
 		// - new last write times / last stat time
 		// - new files from items
@@ -652,7 +659,10 @@ struct ScannerImpl {
 			while (fgets(&line[0], buf_size, cmd_out) != NULL) {
 				// skip the first line: active code page ..
 				if (nr_lines++ == 0) continue;
-				line.resize(line.find_first_of("\n\r"));
+				auto sz = line.find_first_of("\n\r", 0, 3); // include null terminator in the search
+				if (sz == std::string::npos)
+					break;
+				line.resize(sz);
 				//fmt::print("{}\n", line);
 				if (starts_with(line, ":::: ")) {
 					if (current_file != "") observer->item_finished();
