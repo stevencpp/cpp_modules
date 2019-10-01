@@ -18,6 +18,7 @@ ConfigString cfg_generator { "msbuild-generator", "Visual Studio 16 2019" };
 ConfigString cfg_arch { "msbuild-arch", "X64" };
 ConfigString cfg_verbosity { "msbuild-verbosity", "m", "m for mininmal, d for diagnostic" };
 ConfigString cfg_configuration { "msbuild-configuration", "Debug" };
+ConfigString cfg_toolset { "msbuild-toolset", "" };
 
 template<typename ContiguousRange>
 std::string_view to_sv(ContiguousRange&& range) {
@@ -61,8 +62,16 @@ void full_clean_one(const std::string& test) {
 		fs::remove_all(build_path / dir);
 }
 
-void run_one(const std::string& test) {
-	auto test_path = fs::path { cfg_test_path.str() } / test;
+struct run_one_params {
+	std::string_view test_path = cfg_test_path;
+	std::string_view generator = cfg_generator;
+	std::string_view arch = cfg_arch;
+	std::string_view toolset = cfg_toolset;
+	std::string_view verbosity = cfg_verbosity;
+	std::string_view configuration = cfg_configuration;
+};
+void run_one(const std::string& test, const run_one_params& p = {}) {
+	auto test_path = fs::path { p.test_path } / test;
 	REQUIRE(fs::exists(test_path));
 	auto build_path = test_path / "build";
 	fs::create_directory(build_path);
@@ -70,24 +79,32 @@ void run_one(const std::string& test) {
 
 	fmt::print(fmt::fg(fmt::color::yellow), "=== running {} ===\n", test);
 
-	REQUIRE(0 == run_cmd(fmt::format("cmake -G \"{}\" -A \"{}\" ../", cfg_generator, cfg_arch)));
+	std::string cmake_variables = "";
+	if(p.toolset != "")
+		cmake_variables += fmt::format("-DCMAKE_GENERATOR_TOOLSET={} ", p.toolset);
+	auto generate_cmd = fmt::format("cmake -G \"{}\" -A \"{}\" {}../", 
+		p.generator, p.arch, cmake_variables);
+	REQUIRE(0 == run_cmd(generate_cmd));
 
 	// try to make the build environment the same as running from the IDE 
 	auto build_params = fmt::format("SolutionDir={};SolutionPath={}", 
 		build_path.string(), (build_path / ("test_" + test + ".sln")).string());
 	std::string verbosity_long = "minimal";
-	if (cfg_verbosity == "d") verbosity_long = "diagnostic";
+	if (p.verbosity == "d") verbosity_long = "diagnostic";
 	auto log_params = fmt::format("LogFile=build.log;Verbosity={}", verbosity_long);
-	REQUIRE(0 == run_cmd(fmt::format("cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
-		cfg_configuration, cfg_verbosity, build_params, log_params)));
+	auto build_cmd = fmt::format("cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
+		p.configuration, p.verbosity, build_params, log_params);
+	REQUIRE(0 == run_cmd(build_cmd));
 
-	REQUIRE(fs::exists(build_path / cfg_configuration.str() / "A.exe"));
+	REQUIRE(fs::exists(build_path / p.configuration / "A.exe"));
 }
 
 TEST_CASE("msbuild system test", "[msbuild]") {
 	for (std::string& test : get_run_set()) {
 		full_clean_one(test);
 		run_one(test);
+		full_clean_one(test);
+		run_one(test, { .toolset = "ClangCl" } );
 	}
 }
 

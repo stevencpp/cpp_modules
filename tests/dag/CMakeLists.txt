@@ -39,8 +39,11 @@ add_library(D STATIC
 	D2.cpp
 	D3.cpp
 	D4.cpp
-	std_core.cpp
 )
+
+if(CMAKE_GENERATOR_TOOLSET STREQUAL "ClangCl")
+	target_sources(D PRIVATE std_core.cpp)
+endif()
 
 target_cpp_legacy_headers(D
 	D5.h

@@ -25,6 +25,10 @@ target_link_libraries(B8 C)
 
 add_library(C STATIC C.cpp)
 
+if(CMAKE_GENERATOR_TOOLSET STREQUAL "ClangCl")
+	target_sources(C PRIVATE std_core.cpp)
+endif()
+
 target_cpp_modules(A B1 B2 B3 B4 B5 B6 B7 B8 C)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT A)

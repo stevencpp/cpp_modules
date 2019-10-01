@@ -3,6 +3,7 @@ image: Visual Studio 2019
 cache:
 - c:\tools\vcpkg\installed\
 - C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.23.28105\ifc\x64
+- C:\PROJECTS\CPP-MODULES\downloads
     
 build_script:
 - cmd: >
@@ -28,9 +29,22 @@ build_script:
     
 test_script:
 - cmd: >
-    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
-    -FileName "C:\Program Files\LLVM\bin\clang-scan-deps.exe"
+    cd ..
     
-    cd src\test
+    if not exist downloads mkdir downloads
+    
+    cd downloads
+    
+    if not exist "clang-scan-deps.exe"
+    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
+    -FileName "clang-scan-deps.exe"
+    
+    if not exist "clang-cl.exe"
+    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1lHbV2Q6Y7LSRG0OrE-HNEVm8z5J81Npj" 
+    -FileName "clang-cl.exe"
+    
+    copy /Y * "C:\Program Files\LLVM\bin"
+    
+    cd ..\build\src\test
     
     .\Debug\cppm_test.exe [scanner],[msbuild]

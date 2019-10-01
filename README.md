@@ -25,6 +25,7 @@ The build customization overrides the MSBuild target which builds the sources wi
 ### 4. How to build and install it ?
 
 - get the latest preview of Visual Studio 2019 and enable the C++ Modules component in the installer
+- to build modules with clang-cl, get a [snapshot build of llvm](https://llvm.org/builds/)
 - `vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows range-v3:x86-windows`
 - download a [patched clang-scan-deps.exe](https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia) to `C:\Program Files\LLVM\bin`
 - generate Win32 VS solutions for this repo with CMake and the vcpkg toolchain file
