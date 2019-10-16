@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 
 # ==== test driver ====
 
@@ -8,7 +8,9 @@ find_package(lmdb CONFIG REQUIRED)
 find_package(Catch2 CONFIG REQUIRED)
 #find_package(absl CONFIG REQUIRED)
 find_package(range-v3 CONFIG REQUIRED)
-#find_package(reproc++ CONFIG REQUIRED)
+find_package(reproc CONFIG REQUIRED)
+
+enable_language(C) # for reproc
 
 #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -17,8 +19,12 @@ add_executable(cppm_test
 	scanner_test.cpp
 	depinfo.cpp
 	msbuild.cpp
+	lmdb.cpp
+	gen_ninja.cpp
 	util.h
+	util.cpp
 	test_config.h
+	temp_file_test.h
 )
 
 set_property(TARGET cppm_test PROPERTY CXX_STANDARD 20)
@@ -26,6 +32,7 @@ set_property(TARGET cppm_test PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Fil
 
 target_link_libraries(cppm_test
 	PRIVATE cppm_scanner
+	PRIVATE cppm_utils
 	PRIVATE fmt::fmt
 	PRIVATE lmdb
 	#PRIVATE ntdll.lib
@@ -33,5 +40,5 @@ target_link_libraries(cppm_test
 	PRIVATE Catch2::Catch2
 	#PRIVATE absl::flat_hash_map absl::hashtablez_sampler
 	PRIVATE meta concepts range-v3
-	#PRIVATE reproc++
+	PRIVATE reproc
 )

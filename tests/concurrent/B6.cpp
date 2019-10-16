@@ -1,5 +1,7 @@
 export module B6;
 
+#include "H6.h"
+
 import std.core;
 
 import C;

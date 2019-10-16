@@ -60,7 +60,13 @@ struct any_type {
 template<class T>
 auto to_tuple(T&& object) noexcept {
 	using type = std::decay_t<T>;
-	if constexpr (is_braces_constructible<type, any_type, any_type, any_type, any_type>{}) {
+	if constexpr (is_braces_constructible<type, any_type, any_type, any_type, any_type, any_type, any_type>{}) {
+		auto&& [p1, p2, p3, p4, p5, p6] = (type&)object;
+		return std::tuple(p1, p2, p3, p4, p5, p6);
+	} else if constexpr (is_braces_constructible<type, any_type, any_type, any_type, any_type, any_type>{}) {
+		auto&& [p1, p2, p3, p4, p5] = (type&)object;
+		return std::tuple(p1, p2, p3, p4, p5);
+	} else if constexpr (is_braces_constructible<type, any_type, any_type, any_type, any_type>{}) {
 		auto&& [p1, p2, p3, p4] = (type&)object;
 		return std::tuple(p1, p2, p3, p4);
 	} else if constexpr (is_braces_constructible<type, any_type, any_type, any_type>{}) {
@@ -110,21 +116,21 @@ constexpr bool contains_a_view() {
 
 using stored_size_type = uint32_t;
 
-template<typename... TypeIdent>
-constexpr std::size_t get_total_non_view_size_bytes(TypeIdent... type_idents) {
-	bool first_view = true;
-	auto get_single = [&](auto type_ident) -> std::size_t {
+template<typename... TypeIdent, std::size_t... Is>
+constexpr std::size_t get_total_non_view_size_bytes(std::index_sequence<Is...>, TypeIdent... type_idents)
+{
+	auto get_single = [&](auto type_ident, auto idx_c) -> std::size_t {
 		using T = typename decltype(type_ident)::type;
+		constexpr std::size_t idx = decltype(idx_c)::value;
 		if constexpr (is_view_v<T>) {
-			if (!first_view)
-				return sizeof(stored_size_type);
-			first_view = false;
-			return 0;
+			if constexpr (idx == sizeof...(Is) - 1)
+				return 0;
+			return sizeof(stored_size_type);
 		} else {
 			return sizeof(T);
 		}
 	};
-	return (get_single(type_idents) + ...);
+	return (get_single(type_idents, std::integral_constant<std::size_t, Is>{}) + ...);
 }
 
 template<typename T>
@@ -136,19 +142,30 @@ constexpr std::size_t get_view_size_bytes(const T& elem) {
 	return 0;
 }
 
-template<typename... Ts>
-MDB_val to_val_from_aggregate(const std::tuple<Ts...> &tup, char *buf, std::size_t buf_size) {
-	bool first_view = true;
+template<typename... Ts, std::size_t... Is>
+std::size_t get_aggregate_size(const std::tuple<Ts...>& tup, std::index_sequence<Is...>)
+{
+	return std::apply([&](auto&... elems) {
+		constexpr std::size_t non_view_size = get_total_non_view_size_bytes(
+			std::index_sequence<Is...>{}, type_identity<Ts> {} ...);
+		std::size_t total_size = non_view_size + (get_view_size_bytes(elems) + ...);
+		return total_size;
+	}, tup);
+}
+
+template<bool check_size, typename... Ts, std::size_t... Is>
+MDB_val to_val_from_aggregate(const std::tuple<Ts...> &tup, std::index_sequence<Is...> idxs, 
+	char *buf, std::size_t buf_size)
+{
 	std::size_t ofs = 0;
-	auto copy = [&](auto& elem) {
+	auto copy = [&](auto& elem, auto idx_c) {
 		using T = std::decay_t<decltype(elem)>;
+		constexpr std::size_t idx = decltype(idx_c)::value;
 		if constexpr (is_view_v<T>) {
-			auto size = get_view_size_bytes(elem);
-			if (!first_view) {
+			stored_size_type size = get_view_size_bytes(elem);
+			if constexpr (idx != sizeof...(Is) - 1) {
 				memcpy(&buf[ofs], &size, sizeof(stored_size_type));
 				ofs += sizeof(stored_size_type);
-			} else {
-				first_view = false;
 			}
 			memcpy(&buf[ofs], elem.data(), size);
 			ofs += size;
@@ -158,26 +175,72 @@ MDB_val to_val_from_aggregate(const std::tuple<Ts...> &tup, char *buf, std::size
 		}
 	};
 
-	std::apply([&](auto&... elems) {
-		constexpr std::size_t non_view_size = get_total_non_view_size_bytes(type_identity<Ts> {} ...);
-		std::size_t total_size = non_view_size + (get_view_size_bytes(elems) + ...);
+	if constexpr (check_size) {
+		// check if the input data is valid, todo: disable this in release ?
+		std::size_t total_size = get_aggregate_size(tup, idxs);
 		if (total_size >= buf_size)
 			throw std::invalid_argument("not enough buffer space");
-		(copy(elems), ...);
+	}
+
+	std::apply([&](auto&... elems) {
+		(copy(elems, std::integral_constant<std::size_t, Is>{}), ...);
 	}, tup);
 
 	return MDB_val { ofs, buf };
 }
 
-template<typename T>
+#if 0 // bug in VS 16.4.0 Preview 2
+template<bool check_size = true, typename T>
 MDB_val to_val(const T& t, char *buf, int buf_size) {
 	if constexpr (std::is_convertible_v<T, std::string_view>) {
 		auto sv = std::string_view { t };
 		return { sv.size(), (void*)sv.data() };
-	} else if constexpr (contains_a_view<T>()) {
-		return to_val_from_aggregate(to_tuple(t), buf, buf_size);
+	} else if constexpr (contains_a_view<T>()) { // it tries to compile this branch even when if constexpr (false)
+		auto tup = to_tuple(t);
+		auto idxs = std::make_index_sequence<std::tuple_size_v<decltype(tup)>> {};
+		return to_val_from_aggregate<check_size>(tup, idxs, buf, buf_size);
 	} else {
 		return { sizeof(T), (void*)&t };
+	}
+}
+#else
+template<bool check_size = true, typename T>
+std::enable_if_t<
+	std::is_convertible_v<T, std::string_view>, 
+MDB_val> to_val(const T& t, char* buf, int buf_size) {
+	auto sv = std::string_view { t };
+	return { sv.size(), (void*)sv.data() };
+}
+
+template<bool check_size = true, typename T>
+std::enable_if_t<
+	contains_a_view<T>(),
+MDB_val> to_val(const T& t, char* buf, int buf_size) {
+	static_assert(!std::is_same_v<T, uint32_t>, "must not be key");
+	auto tup = to_tuple(t);
+	auto idxs = std::make_index_sequence<std::tuple_size_v<decltype(tup)>> {};
+	return to_val_from_aggregate<check_size>(tup, idxs, buf, buf_size);
+}
+
+template<bool check_size = true, typename T>
+MDB_val to_val(const T& t, char* buf, int buf_size, std::enable_if_t<
+	!std::is_convertible_v<T, std::string_view> && !contains_a_view<T>(),
+void> * v = nullptr) {
+	return { sizeof(T), (void*)&t };
+}
+#endif
+
+template<typename T>
+std::size_t get_val_size(const T& t) {
+	if constexpr (std::is_convertible_v<T, std::string_view>) {
+		auto sv = std::string_view { t };
+		return sv.size();
+	} else if constexpr (contains_a_view<T>()) {
+		auto tup = to_tuple(t);
+		auto idxs = std::make_index_sequence<std::tuple_size_v<decltype(tup)>> {};
+		return get_aggregate_size(tup, idxs);
+	} else {
+		return sizeof(T);
 	}
 }
 
@@ -186,27 +249,24 @@ struct type_identity {
 	using type = T;
 };
 
-template<typename A, typename... Ts>
-decltype(auto) from_val_to_aggregate(MDB_val val, std::tuple<Ts...> tup) {
-	bool first_view = true; // todo: find a constexpr way to do this
-	auto get_view_size_without_first = [&](auto& elem) -> std::size_t {
+template<typename A, typename... Ts, std::size_t... Is>
+decltype(auto) from_val_to_aggregate(MDB_val val, std::tuple<Ts...> tup, std::index_sequence<Is...>) {
+	auto get_view_size_without_last = [&](auto& elem, auto idx_c) -> std::size_t {
 		using T = std::decay_t<decltype(elem)>;
-		if constexpr (is_view_v<T>) {
-			if (!first_view)
-				return get_view_size_bytes(elem);
-			first_view = false;	
-		}
+		constexpr std::size_t idx = decltype(idx_c)::value;
+		if constexpr (is_view_v<T> && idx != sizeof...(Is) - 1)
+			return get_view_size_bytes(elem);
 		return 0;
 	};
 
 	auto data_ptr = (char*)val.mv_data;
-	auto copy_to = [&](auto & elem, std::size_t size_without_first_view) {
+	auto copy_to = [&](auto & elem, auto idx_c) {
 		using T = std::decay_t<decltype(elem)>;
+		constexpr std::size_t idx = decltype(idx_c)::value;
 		if constexpr (is_view_v<T>) {
 			std::size_t size_bytes = 0;
-			if (first_view) {
-				size_bytes = val.mv_size - size_without_first_view;
-				first_view = false;
+			if constexpr (idx == sizeof...(Is) - 1) {
+				size_bytes = val.mv_size - (data_ptr - (char*)val.mv_data);
 			} else {
 				stored_size_type szb; // todo: maybe use a variable length binary integer ?
 				memcpy(&szb, data_ptr, sizeof(stored_size_type)); // todo: std::bless
@@ -227,14 +287,14 @@ decltype(auto) from_val_to_aggregate(MDB_val val, std::tuple<Ts...> tup) {
 	};
 	
 	return std::apply([&](auto&... elems) {
-		constexpr std::size_t non_view_size = get_total_non_view_size_bytes(type_identity<Ts> {} ...);
-		// find the size of the string inside the aggregate
-		std::size_t size_without_first_view = non_view_size + (get_view_size_without_first(elems) + ...);
+		// check if the input data is valid, todo: disable this in release ?
+		constexpr std::size_t non_view_size = get_total_non_view_size_bytes(std::index_sequence<Is...>{}, type_identity<Ts> {} ...);
+		std::size_t size_without_first_view = non_view_size + 
+			(get_view_size_without_last(elems, std::integral_constant<std::size_t, Is>{}) + ...);
 		if (size_without_first_view > val.mv_size)
 			throw std::runtime_error("size mismatch");
 		// copy the data from val into tup
-		first_view = true;
-		(copy_to(elems, size_without_first_view), ...);
+		(copy_to(elems, std::integral_constant<std::size_t, Is>{}), ...);
 		// then convert tup to the aggregate type
 		return A { elems... };
 	}, tup);
@@ -245,7 +305,9 @@ decltype(auto) from_val(MDB_val val) {
 	if constexpr (std::is_same_v<T, std::string_view>) {
 		return std::string_view { (const char*)val.mv_data, val.mv_size };
 	} else if constexpr (contains_a_view<T>()) {
-		return from_val_to_aggregate<T>(val, to_tuple(T {}));
+		auto tup = to_tuple(T {});
+		auto idxs = std::make_index_sequence<std::tuple_size_v<decltype(tup)>> {};
+		return from_val_to_aggregate<T>(val, tup, idxs);
 	} else {
 		if (val.mv_size != sizeof(T)) {
 			throw std::runtime_error("size mismatch");

@@ -61,12 +61,21 @@ struct mdb_dbi_put<false, Key, Value> { // only for read/write transactions
 		// if key or value are aggregates that contain views then their contents need to be copied to a buffer first
 		constexpr int max_key_len = 2048; // todo: use the value that lmdb was compiled with
 		char key_buf[max_key_len];
-		constexpr int max_val_len = 2048; // todo: use MDB_RESERVE to avoid a copy and allow arbitrary val lengths
-		char val_buf[max_val_len];
 		MDB_val key = to_val(k, key_buf, max_key_len);
-		MDB_val val = to_val(v, val_buf, max_val_len);
-		int ret = mdb_put(parent->txn, parent->dbi, &key, &val, put_flags);
-		handle_mdb_error(ret, "failed to put data");
+
+		if constexpr (contains_a_view<Value>()) {
+			MDB_val val;
+			val.mv_size = get_val_size(v);
+			int ret = mdb_put(parent->txn, parent->dbi, &key, &val, put_flags + flags::put::reserve);
+			handle_mdb_error(ret, "failed to put aggregate");
+			to_val<false>(v, (char*)val.mv_data, val.mv_size);
+		} else {
+			constexpr int max_val_len = 2048;
+			char val_buf[max_val_len];
+			MDB_val val = to_val(v, val_buf, max_val_len);
+			int ret = mdb_put(parent->txn, parent->dbi, &key, &val, put_flags);
+			handle_mdb_error(ret, "failed to put data");
+		}
 	}
 };
 

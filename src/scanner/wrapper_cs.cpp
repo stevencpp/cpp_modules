@@ -91,6 +91,8 @@ struct UCS2_to_UTF8_Converter
 	void finish_reserve() {
 		if (buf_poz != nullptr)
 			throw new std::runtime_error("finish_reserve must be called only once");
+		if (total_len == 0)
+			return;
 		constexpr int max_bytes_per_codepoint_utf8 = 4;
 		buf.resize(total_len * max_bytes_per_codepoint_utf8);
 		buf_poz = &buf[0];
@@ -114,22 +116,19 @@ struct UCS2_to_UTF8_Converter
 
 public ref class DepInfoObserver abstract {
 public:
-	virtual void on_result(uint32_t item_idx, depinfo_cs::DepInfo^ dep_info) = 0;
+	virtual void on_result(uint32_t item_idx, depinfo_cs::DepInfo^ dep_info, bool out_of_date) = 0;
 };
 
 struct DepInfoForwarder : cppm::DepInfoObserver {
 	gcroot<List<String^>^> string_table = gcnew List<String^>();
 	gcroot<depinfo_cs::DepInfo^> cur_dep_info = nullptr;
 	gcroot<cppm_cs::DepInfoObserver^> forward_to;
-	std::size_t cur_item_idx = 0;
+	cppm::scan_item_idx_t cur_item_idx = {};
+	bool cur_item_is_out_of_date = false;
 	gcroot<List<ScanItem^>^> items;
 
 	DepInfoForwarder(gcroot<List<ScanItem^>^> items, gcroot<cppm_cs::DepInfoObserver^> forward_to) : 
 		items(items), forward_to(forward_to) {}
-
-	void add_to_table(String^ str) {
-
-	}
 
 	String^ get_data(DataBlockView db) {
 		String^ ret = nullptr;
@@ -174,11 +173,12 @@ struct DepInfoForwarder : cppm::DepInfoObserver {
 		return ret;
 	}
 
-	void results_for_item(std::size_t item_idx) override {
+	void results_for_item(cppm::scan_item_idx_t item_idx, bool out_of_date) override {
 		cur_item_idx = item_idx;
+		cur_item_is_out_of_date = out_of_date;
 		cur_dep_info = gcnew depinfo_cs::DepInfo();
 		List<ScanItem^>^ a_items = items;
-		cur_dep_info->input = gcnew String(a_items[item_idx]->path);
+		cur_dep_info->input = gcnew String(a_items[(std::size_t)item_idx]->path);
 	}
 
 	void export_module(DataBlockView name) override {
@@ -208,7 +208,7 @@ struct DepInfoForwarder : cppm::DepInfoObserver {
 	}
 
 	void item_finished() override {
-		forward_to->on_result((uint32_t)cur_item_idx, cur_dep_info);
+		forward_to->on_result((uint32_t)cur_item_idx, cur_dep_info, cur_item_is_out_of_date);
 		cur_dep_info = nullptr;
 	}
 };
@@ -221,35 +221,27 @@ public ref struct ScanItemSet {
 	List<ScanItem^>^ items = gcnew List<ScanItem^>();
 };
 
-struct ScanItemSetView {
-	std::string_view item_root_path;
-	bool commands_contain_item_path = false;
-	std::vector<std::string_view> commands;
-	std::vector<std::string_view> targets;
-	std::vector<cppm::ScanItemView> items;
-};
-
 public ref class Scanner {
 
 	auto convert_commands(UCS2_to_UTF8_Converter& conv, List<String^>^ commands) {
-		std::vector<std::string_view> v_commands;
-		v_commands.reserve(commands->Count);
+		vector_map<cppm::cmd_idx_t, std::string_view> v_commands;
+		v_commands.reserve(cppm::cmd_idx_t { commands->Count });
 		for each (String ^ command in commands)
 			v_commands.push_back(conv.to_sv(command));
 		return v_commands;
 	}
 
 	auto convert_targets(UCS2_to_UTF8_Converter& conv, List<String^>^ targets) {
-		std::vector<std::string_view> v_targets;
-		v_targets.reserve(targets->Count);
+		vector_map<cppm::target_idx_t, std::string_view> v_targets;
+		v_targets.reserve(cppm::target_idx_t { targets->Count });
 		for each (String ^ name in targets)
 			v_targets.push_back(conv.to_sv(name));
 		return v_targets;
 	}
 
 	auto convert_items(UCS2_to_UTF8_Converter& conv, List<ScanItem^>^ items) {
-		std::vector<cppm::ScanItemView> v_items;
-		v_items.reserve(items->Count);
+		vector_map<cppm::scan_item_idx_t, cppm::ScanItemView> v_items;
+		v_items.reserve(cppm::scan_item_idx_t { items->Count });
 		for each (ScanItem ^ item in items)
 			v_items.push_back(cppm::ScanItemView {
 				conv.to_sv(item->path),
@@ -269,8 +261,8 @@ public ref class Scanner {
 			conv.reserve(item->path);
 	}
 
-	ScanItemSetView convert(UCS2_to_UTF8_Converter& conv, ScanItemSet^ scan_items) {
-		ScanItemSetView ret;
+	cppm::ScanItemSetOwnedView convert(UCS2_to_UTF8_Converter& conv, ScanItemSet^ scan_items) {
+		cppm::ScanItemSetOwnedView ret;
 		ret.item_root_path = conv.to_sv(scan_items->item_root_path);
 		ret.commands_contain_item_path = scan_items->commands_contain_item_path;
 		// todo: are these conversions slow ? maybe do some threading here ?
@@ -287,32 +279,29 @@ public:
 
 	String^ scan(Type tool_type, String^ tool_path, String^ db_path, String^ int_dir, 
 		ScanItemSet^ scan_items, cppm::file_time_t build_start_time, 
-		bool concurrent_targets, bool file_tracker_running, DepInfoObserver^ observer)
+		bool concurrent_targets, bool file_tracker_running, DepInfoObserver^ observer,
+		bool submit_previous_results)
 	{
 		// let the converter allocate enough space for all of the strings at once
 		UCS2_to_UTF8_Converter conv;
-		conv.reserve(tool_path).reserve(db_path);
+		conv.reserve(tool_path).reserve(db_path).reserve(int_dir);
 		reserve(conv, scan_items);
 		conv.finish_reserve();
 
-		ScanItemSetView v = convert(conv, scan_items);
-
 		DepInfoForwarder forwader(scan_items->items, observer);
 
-		cppm::Scanner::Config config;
+		cppm::Scanner::ConfigView config;
 		config.tool_type = static_cast<cppm::Scanner::Type>(tool_type);
 		config.tool_path = conv.to_sv(tool_path);
 		config.db_path = conv.to_sv(db_path);
 		config.int_dir = conv.to_sv(int_dir);
-		config.item_root_path = v.item_root_path;
-		config.commands_contain_item_path = v.commands_contain_item_path;
-		config.commands = v.commands;
-		config.targets = v.targets;
-		config.items = v.items;
+		auto owned_view = convert(conv, scan_items);
+		config.item_set = cppm::ScanItemSetView::from(owned_view);
 		config.build_start_time = build_start_time;
 		config.concurrent_targets = concurrent_targets;
 		config.file_tracker_running = file_tracker_running;
 		config.observer = &forwader;
+		config.submit_previous_results = submit_previous_results;
 
 		cppm::Scanner scanner;
 		try {
@@ -331,13 +320,10 @@ public:
 		reserve(conv, scan_items);
 		conv.finish_reserve();
 
-		ScanItemSetView v = convert(conv, scan_items);
-
-		cppm::Scanner::Config config;
+		cppm::Scanner::ConfigView config;
 		config.db_path = conv.to_sv(db_path);
-		config.item_root_path = v.item_root_path;
-		config.targets = v.targets;
-		config.items = v.items;
+		auto owned_view = convert(conv, scan_items);
+		config.item_set = cppm::ScanItemSetView::from(owned_view);
 
 		cppm::Scanner scanner;
 		try {

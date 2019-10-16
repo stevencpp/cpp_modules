@@ -1,11 +1,12 @@
 #include <catch2/catch.hpp>
-#include "test_config.h"
 #include <range/v3/view/split.hpp>
 #include <filesystem>
-//#include <reproc++/reproc.hpp>
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/core.h>
 #include <fmt/color.h>
+
+#include "test_config.h"
+#include "util.h"
 
 namespace fs = std::filesystem;
 
@@ -34,19 +35,6 @@ auto get_run_set() {
 			ret.push_back((std::string)to_sv(test));
 	}
 	return ret;
-}
-
-int run_cmd(const std::string& cmd) {
-	FILE* cmd_out = _popen(cmd.c_str(), "r");
-	constexpr int buf_size = 2 * 1024 * 1024;
-	std::string line_buf;
-	line_buf.resize(buf_size);
-	while (fgets(&line_buf[0], buf_size, cmd_out) != NULL) {
-		std::string_view line = line_buf;
-		line = line.substr(0, line_buf.find_first_of("\n\r", 0, 3)); // include null terminator in the search
-		fmt::print("> {}\n", line);
-	}
-	return _pclose(cmd_out);
 }
 
 void full_clean_one(const std::string& test) {
@@ -79,11 +67,10 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 
 	fmt::print(fmt::fg(fmt::color::yellow), "=== running {} ===\n", test);
 
-	std::string cmake_variables = "";
+	CmdArgs generate_cmd { "cmake -G \"{}\" -A \"{}\" ", p.generator, p.arch };
 	if(p.toolset != "")
-		cmake_variables += fmt::format("-DCMAKE_GENERATOR_TOOLSET={} ", p.toolset);
-	auto generate_cmd = fmt::format("cmake -G \"{}\" -A \"{}\" {}../", 
-		p.generator, p.arch, cmake_variables);
+		generate_cmd.append("-DCMAKE_GENERATOR_TOOLSET={} ", p.toolset);
+	generate_cmd.append("../");
 	REQUIRE(0 == run_cmd(generate_cmd));
 
 	// try to make the build environment the same as running from the IDE 
@@ -92,14 +79,15 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 	std::string verbosity_long = "minimal";
 	if (p.verbosity == "d") verbosity_long = "diagnostic";
 	auto log_params = fmt::format("LogFile=build.log;Verbosity={}", verbosity_long);
-	auto build_cmd = fmt::format("cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
-		p.configuration, p.verbosity, build_params, log_params);
+	CmdArgs build_cmd { "cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
+		p.configuration, p.verbosity, build_params, log_params };
 	REQUIRE(0 == run_cmd(build_cmd));
 
 	REQUIRE(fs::exists(build_path / p.configuration / "A.exe"));
 }
 
 TEST_CASE("msbuild system test", "[msbuild]") {
+	auto guard = make_chdir_guard();
 	for (std::string& test : get_run_set()) {
 		full_clean_one(test);
 		run_one(test);

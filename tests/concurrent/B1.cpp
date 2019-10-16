@@ -1,5 +1,7 @@
 export module B1;
 
+#include "H1.h"
+
 import std.core;
 
 import C;

@@ -1,5 +1,7 @@
 export module B5;
 
+#include "H5.h"
+
 import std.core;
 
 import C;

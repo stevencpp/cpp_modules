@@ -4,6 +4,7 @@ cache:
 - c:\tools\vcpkg\installed\
 - C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.23.28105\ifc\x64
 - C:\PROJECTS\CPP-MODULES\downloads
+- C:\PROJECTS\CPP-MODULES\ninja
     
 build_script:
 - cmd: >
@@ -12,7 +13,8 @@ build_script:
     --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Community"
     --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
     
-    vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows range-v3:x86-windows
+    vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows
+    catch2:x86-windows range-v3:x86-windows clara:x86-windows reproc:x86-windows
 
     mkdir build
     
@@ -31,7 +33,8 @@ test_script:
 - cmd: >
     cd ..
     
-    if not exist downloads mkdir downloads
+    if not exist downloads
+    mkdir downloads
     
     cd downloads
     
@@ -45,6 +48,17 @@ test_script:
     
     copy /Y * "C:\Program Files\LLVM\bin"
     
-    cd ..\build\src\test
+    cd ..
     
-    .\Debug\cppm_test.exe [scanner],[msbuild]
+    if not exist ninja
+    git clone https://github.com/ninja-build/ninja.git &&
+    cd ninja &&
+    cmake -G "Visual Studio 16 2019" -A "x64" . &&
+    cmake --build . --config "Release" --parallel &&
+    cd ..
+    
+    cd build\src\test
+    
+    call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+    
+    .\Debug\cppm_test.exe [scanner],[msbuild],[lmdb],[gen_ninja] --ninja_path=../../../ninja/Release/ninja.exe

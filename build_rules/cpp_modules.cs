@@ -545,10 +545,10 @@ public class CppM_CL : Task
 			if(report != "") cppm.Log.LogMessage(MessageImportance.High, "{0} {1}", src_file, report);
 		}
 		
-		public override void on_result(uint item_idx, DepInfo dep_info) {
+		public override void on_result(uint item_idx, DepInfo dep_info, bool out_of_date) {
 			//cppm.Log.LogMessage(MessageImportance.High, "results for {0}:", dep_info.input);
 			var item = itemset.Get(dep_info.input);
-			item.is_ood = true;
+			item.is_ood = out_of_date;
 			var mdef = new ModuleDefinition {
 				base_command = cppm.GetBaseCommand(item, preprocess: false),
 				obj_file = NormalizeFilePath(item.GetMetadata("ObjectFileName") + 
@@ -609,10 +609,11 @@ public class CppM_CL : Task
 		var concurrent_tagets = true;
 		var file_tracker_running = false;
 		var observer = new OOD_Deps_Observer { cppm = this, itemset = itemset };
+		bool submit_previous_results = false;
 		
 		Directory.CreateDirectory(DB_Path);
 		scanner.scan(tool_type, tool_path, DB_Path, int_dir, scan_items,
-			build_start_time, concurrent_tagets, file_tracker_running, observer);
+			build_start_time, concurrent_tagets, file_tracker_running, observer, submit_previous_results);
 		
 		if(false) {
 			// todo: handle various scan errors

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 project(test_concurrent LANGUAGES CXX)
 
 find_package(cpp_modules REQUIRED)

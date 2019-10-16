@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.15)
 
 find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -14,6 +14,7 @@ add_library(cppm_scanner
 	depinfo.h
 	lmdb_wrapper.h
 	lmdb_wrapper_impl.h
+	lmdb_string_store.h
 	lmdb_path_store.h
 	strong_id.h
 	multi_buffer.h
@@ -23,6 +24,7 @@ add_library(cppm_scanner
 	file_time.h
 	file_time.cpp
 	span.hpp
+	trace.h
 )
 
 target_link_libraries(cppm_scanner
@@ -36,16 +38,23 @@ target_include_directories(cppm_scanner
 	INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+if(MSVC)
+#target_compile_options(cppm_scanner PRIVATE "/permissive-") # commented because MSVC bugs :(
+endif()
+
 set_property(TARGET cppm_scanner PROPERTY CXX_STANDARD 17)
 set_property(TARGET cppm_scanner PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Files\\LLVM")
 
 # ==== executable tool ====
 add_executable(cppm_scanner_tool
 	tool_main.cpp
+	gen_ninja.cpp
+	gen_ninja.h
 )
 
 target_link_libraries(cppm_scanner_tool
 	PRIVATE cppm_scanner
+	PRIVATE cppm_utils
 )
 
 target_link_libraries(cppm_scanner_tool

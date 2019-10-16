@@ -61,6 +61,10 @@ private:
 	std::vector<vec_info> vecs;
 	size_type max_idx = {};
 public:
+	void reserve(std::size_t nr_vecs, std::size_t nr_elems) {
+		vecs.reserve(nr_vecs);
+		buf.reserve(nr_elems);
+	}
 	void new_vector(size_type idx) {
 		if (!can_add)
 			throw std::runtime_error("must not add more vectors after viewing some");
@@ -88,6 +92,14 @@ public:
 		T* end = &buf.front() + buf.size();
 		ret[vecs.back().final_idx] = { start, end };
 		return ret;
+	}
+	auto get_last_span() {
+		can_add = false;
+		if (buf.empty() || vecs.empty())
+			return tcb::span<T> {};
+		T* start = &buf.front() + vecs.back().ofs;
+		T* end = &buf.front() + buf.size();
+		return tcb::span<T> { start, end };
 	}
 	size_type size() const {
 		return max_idx + 1;

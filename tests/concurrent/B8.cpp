@@ -1,5 +1,7 @@
 export module B8;
 
+#include "H8.h"
+
 import std.core;
 
 import C;

@@ -7,49 +7,11 @@
 #include "catch.hpp"
 
 #include "test_config.h"
+#include "cmd_line_utils.h"
 
 #include <filesystem>
 
 namespace fs = std::filesystem;
-
-auto make_chdir_guard() {
-	struct chdir_guard {
-		fs::path current;
-		chdir_guard() : current(fs::current_path()) {}
-		~chdir_guard() { fs::current_path(current); }
-	};
-	return chdir_guard {};
-}
-
-#ifdef _WIN32
-#include <shellapi.h>
-int applyCommandLineFromFile(Catch::Session& session, int argc, char* argv[])
-{
-	std::wifstream fin("command_line.txt");
-	if (!fin)
-		return session.applyCommandLine(argc, argv);
-
-	std::wstring command_line = L"exec";
-	std::wstring line;
-	while (std::getline(fin, line)) {
-		if (line.starts_with(L"#"))
-			continue;
-		command_line += L" " + line;
-	}
-
-	int nArgs = 0;
-	LPWSTR* szArglist = CommandLineToArgvW(command_line.c_str(), &nArgs);
-	if (NULL == szArglist) {
-		wprintf(L"CommandLineToArgvW failed\n");
-		return 1;
-	}
-	return session.applyCommandLine(nArgs, szArglist);
-}
-#else
-int applyCommandLineFromFile(Catch::Session& session, int argc, char* argv[]) {
-	return session.applyCommandLine(argc, argv);
-}
-#endif
 
 int unguarded_main(int argc, char* argv[])
 {
@@ -63,13 +25,17 @@ int unguarded_main(int argc, char* argv[])
 		cli |= Opt(*conf_string, conf_string->description)
 			[opt_name] (conf_string->description);
 	}
+	std::string working_dir;
+	cli |= Opt(working_dir, "working dir")["--working_dir"];
 	session.cli(cli);
 
 	// writing to session.configData() here sets defaults
 	// this is the preferred way to set them
 	session.configData().shouldDebugBreak = true;
 	
-	int returnCode = applyCommandLineFromFile(session, argc, argv);
+	int returnCode = cppm::apply_command_line_from_file(argc, argv, [&](int argc, char* argv[]) {
+		return session.applyCommandLine(argc, argv);
+	});
 	if (returnCode != 0) // Indicates a command line error
 		return returnCode;
 
@@ -83,6 +49,9 @@ int unguarded_main(int argc, char* argv[])
 	// overrides command line args
 	// only do this if you know you need to
 
+	if (working_dir != "")
+		fs::current_path(working_dir);
+
 	int numFailed = session.run();
 
 	// numFailed is clamped to 255 as some unices only use the lower 8 bits.
@@ -91,8 +60,7 @@ int unguarded_main(int argc, char* argv[])
 	return numFailed;
 }
 
-int main(int argc, char* argv[]) {
-	auto chdir_guard = make_chdir_guard();
+int main(int argc, char * argv[]) {
 	try {
 		return unguarded_main(argc, argv);
 	} catch (...) {

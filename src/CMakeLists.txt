@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.15)
+
 add_executable(cpp_modules main.cpp)
 
 set_property(TARGET cpp_modules PROPERTY CXX_STANDARD 17)
@@ -25,6 +27,7 @@ if(WIN32)
 	)
 endif()
 
+add_subdirectory(utils)
 add_subdirectory(scanner)
 add_subdirectory(test)
 #add_subdirectory(ninja)

@@ -4,8 +4,6 @@
 
 #include "strong_id.h"
 
-#include <string_view>
-
 //#include <absl/container/flat_hash_map.h>
 
 namespace mdb {
@@ -173,6 +171,9 @@ struct path_store {
 				p.make_preferred();
 			} else {
 				// this is an expensive call (I/O):
+				// todo: hash every prefix of the path in non-canonical form
+				// (allow multiple entries in the hash map to point to the same path id)
+				// so that hopefully next time we can avoid this call 
 				p = std::filesystem::canonical(paths[i]);
 			}
 			auto p_str = p.string(); // todo: remove this allocation

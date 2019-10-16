@@ -98,13 +98,15 @@ struct vector_map : public std::vector<Value> {
 	void reserve(Key new_capacity) {
 		base::reserve((size_type)new_capacity);
 	}
+	tcb::span<Value> to_span() {
+		return { base::data(), base::size() };
+	}
 };
 
 template<typename Key, typename Value>
 struct span_map : public tcb::span<Value> {
 	using base = tcb::span<Value>;
 	//using base::base;
-	using base::operator=;
 	explicit span_map(tcb::span<Value> s) : base(s) {}
 	explicit span_map(Value* start, Value* end) : base(start, end) {}
 	explicit span_map() {}
@@ -113,6 +115,12 @@ struct span_map : public tcb::span<Value> {
 	template<typename V = Value, typename = std::enable_if_t< std::is_same_v<V, Value> && std::is_const_v<Value> >>
 	span_map(const span_map<Key, V> & s) : base(s.data(), (std::size_t)s.size()) {}
 	span_map(const span_map<Key, MutableValue> & s) : base(s.data(), (std::size_t)s.size()) {}
+
+	using base::operator=;
+	span_map& operator=(const vector_map<Key, Value>& v) {
+		(*(base*)this) = tcb::span { (MutableValue*)v.data(), (std::size_t)v.size() };
+		return *this;
+	}
 
 	Value& operator[](const Key& key) {
 		return base::operator[]((std::size_t)key);
@@ -125,6 +133,9 @@ struct span_map : public tcb::span<Value> {
 	}
 	indices_range<Key> indices() const {
 		return { Key { 0 }, size() };
+	}
+	tcb::span<Value> to_span() {
+		return *(base*)this;
 	}
 };
 
