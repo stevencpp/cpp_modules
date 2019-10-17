@@ -83,6 +83,11 @@ auto to_tuple(T&& object) noexcept {
 	}
 }
 
+template< class T > // todo: should be standard in C++20
+struct type_identity {
+	using type = T;
+};
+
 template<typename T>
 struct is_string_view : std::false_type {};
 template <>
@@ -243,11 +248,6 @@ std::size_t get_val_size(const T& t) {
 		return sizeof(T);
 	}
 }
-
-template< class T > // todo: should be standard in C++20
-struct type_identity {
-	using type = T;
-};
 
 template<typename A, typename... Ts, std::size_t... Is>
 decltype(auto) from_val_to_aggregate(MDB_val val, std::tuple<Ts...> tup, std::index_sequence<Is...>) {

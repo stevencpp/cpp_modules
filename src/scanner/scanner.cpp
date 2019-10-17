@@ -15,6 +15,7 @@
 #include "strong_id.h"
 #include "multi_buffer.h"
 #include "trace.h"
+#include "cmd_line_utils.h"
 
 namespace cppm {
 
@@ -577,36 +578,28 @@ struct ScannerImpl {
 		if (ood_items.empty())
 			return data;
 
-		// code page 65001 is UTF-8, use that for the paths - todo: test this
-		std::string cmd = fmt::format("chcp 65001 & \"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path);
-		FILE* cmd_out = _popen(cmd.c_str(), "r");
-		if (!cmd_out)
-			throw std::runtime_error("failed to execute scanner tool");
-
-		// todo: ideally we should send the up-to-date item information to the observer here, after scanning started
-
-#if 0
-		auto json_depformat = nlohmann::json::parse(cmd_out);
-		fclose(cmd_out);
-#endif
-
 		//std::vector<file_table_idx_t> file_table_indexed_lookup;
 		std::unordered_map<std::string, file_table_idx_t> file_table_lookup;
 		std::unordered_map<std::string, module_table_idx_t> module_table_lookup;
 
-		auto get_file_table_idx = [&](const std::string& str) {
+		auto get_file_table_idx = [&](std::string_view file) {
+			// todo: use heterogeneous lookup when available
+			auto str = (std::string)file;
 			auto [itr, inserted] = file_table_lookup.try_emplace(str, file_table_idx_t {});
 			if (inserted)
 				itr->second = data.file_table_buf.add(str);
 			return itr->second;
 		};
 
-		auto get_module_table_idx = [&](const std::string& str) {
+		auto get_module_table_idx = [&](std::string_view name) {
+			// todo: use heterogeneous lookup when available
+			auto str = (std::string)name;
 			auto [itr, inserted] = module_table_lookup.try_emplace(str, module_table_idx_t {});
 			if (inserted)
 				itr->second = data.module_table_buf.add(str);
 			return itr->second;
 		};
+
 #if 0
 		auto get_file_table_idx_2 = [&](std::size_t idx, const std::string& str) {
 			auto ft_idx = get_file_table_idx(str);
@@ -621,8 +614,22 @@ struct ScannerImpl {
 		};
 #endif
 
+		std::unordered_map<std::string, scan_item_idx_t> item_lookup;
+		for (auto i : items.indices()) {
+			// note: this doesn't work if there are multiple items with the same file path
+			item_lookup[get_rooted_path(item_root_path, items[i].path).string()] = i;
+		}
+		auto starts_with = [](std::string_view a, std::string_view b) {
+			return (a.substr(0, b.size()) == b);
+		};
+		int nr_lines = 0;
+		std::string current_file;
+		scan_item_idx_t current_item_idx = {};
+
+		// code page 65001 is UTF-8, use that for the paths - todo: test this
+		CmdArgs cmd { "chcp 65001 & \"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
+		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
 #if 0
-		for (auto& json_depinfo : json_depformat["sources"]) {
 			auto input_file = json_depinfo["input"];
 			auto item_idx = scan_item_idx_t { json_depinfo["_id"].get<std::size_t>() }; // note: otherwise we need to look at the outputs
 
@@ -636,34 +643,10 @@ struct ScannerImpl {
 				auto src_path = json_module["source_path"].get<std::string>();
 				item_deps_buf.add(get_file_table_idx(src_path));
 			}
-		}
-#else
-		std::unordered_map<std::string, scan_item_idx_t> item_lookup;
-		for (auto i : items.indices()) {
-			// note: this doesn't work if there are multiple items with the same file path
-			item_lookup[get_rooted_path(item_root_path, items[i].path).string()] = i;
-		}
-		constexpr int buf_size = 2 * 1024 * 1024;
-		std::string line;
-		line.resize(buf_size);
-		auto starts_with = [](std::string_view a, std::string_view b) {
-			return (a.substr(0, b.size()) == b);
-		};
-		auto subview = [](const std::string& str, std::size_t ofs) {
-			std::string_view ret { str };
-			ret.remove_prefix(ofs);
-			return ret;
-		};
-		int nr_lines = 0;
-		std::string current_file;
-		scan_item_idx_t current_item_idx = {};
-		while (fgets(&line[0], buf_size, cmd_out) != NULL) {
+#endif
+
 			// skip the first line: active code page ..
-			if (nr_lines++ == 0) continue;
-			auto sz = line.find_first_of("\n\r", 0, 3); // include null terminator in the search
-			if (sz == std::string::npos)
-				break;
-			line.resize(sz);
+			if (nr_lines++ == 0) return true;
 			//fmt::print("{}\n", line);
 			if (starts_with(line, ":::: ")) {
 				if (current_file != "") observer->item_finished();
@@ -678,12 +661,12 @@ struct ScannerImpl {
 				data.got_result[current_item_idx] = true;
 				observer->results_for_item(current_item_idx, /*out_of_date=*/true);
 			} else if (starts_with(line, ":exp ")) {
-				auto name = subview(line, 5);
-				data.exports[current_item_idx] = get_module_table_idx((std::string)name);
+				auto name = line.substr(5);
+				data.exports[current_item_idx] = get_module_table_idx(name);
 				observer->export_module(name);
 			} else if (starts_with(line, ":imp ")) {
-				auto name = subview(line, 5);
-				data.imports_buf.add(get_module_table_idx((std::string)name));
+				auto name = line.substr(5);
+				data.imports_buf.add(get_module_table_idx(name));
 				observer->import_module(name);
 				// todo: import header unit ?
 			} else {
@@ -694,11 +677,16 @@ struct ScannerImpl {
 					//observer->other_file_dep();
 				}
 			}
-			line.resize(buf_size);
-		}
+			return true;
+		}, [](std::string_view err_line) {
+			fmt::print("ERR: {}\n", err_line);
+			return true;
+		});
+
+		if(ret != 0)
+			throw std::runtime_error("failed to execute scanner tool");
+
 		if (current_file != "") observer->item_finished();
-		fclose(cmd_out);
-#endif
 
 		return data;
 	}

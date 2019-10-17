@@ -238,9 +238,9 @@ public:
 
 	void canonicalize(opt_db_vec& result_opt, opt_db_vec& expected_opt) {
 		for (auto& file : result_opt.value())
-			file = std::filesystem::canonical(std::get<std::string>(file)).string();
+			file = fs::canonical(std::get<std::string>(file)).string();
 		for (auto& file : expected_opt.value())
-			file = std::filesystem::canonical(tmp_path / std::get<std::string>(file)).string();
+			file = fs::canonical(tmp_path / std::get<std::string>(file)).string();
 	}
 
 	template<typename T>
@@ -317,7 +317,7 @@ public:
 	}
 
 	void touch(const char* file_name) {
-		std::filesystem::last_write_time(tmp_path / file_name, std::filesystem::file_time_type::clock::now());
+		fs::last_write_time(tmp_path / file_name, fs::file_time_type::clock::now());
 	}
 };
 

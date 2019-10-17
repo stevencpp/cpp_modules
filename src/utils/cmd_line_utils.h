@@ -1,6 +1,10 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <string>
+#include <vector>
+#include <fmt/format.h>
+
 
 namespace cppm {
 
@@ -38,5 +42,49 @@ std::string executable_path();
 
 std::string find_command_line_argument(std::string_view command_line, std::string_view starts_with);
 std::string get_command_line_argument(std::string_view command_line, int idx);
+
+struct CmdArgs {
+	std::vector<std::string> arg_vec;
+
+	CmdArgs() {
+		init();
+	}
+
+	template<typename... Args>
+	CmdArgs(std::string_view format_string, Args&&... args) {
+		init();
+		append(format_string, std::forward<Args>(args)...);
+	}
+
+	void init();
+
+	template<typename... Args>
+	void append(std::string_view format_string, Args&&... args) {
+		std::string str = fmt::format(format_string, std::forward<Args>(args)...);
+		std::string cur;
+		for (size_t i = 0; i < str.size(); i++) {
+			char c = str[i];
+			if (c == ' ') {
+				if (!cur.empty()) {
+					arg_vec.push_back(cur);
+					cur.clear();
+				}
+			} else if (c == '\"') {
+				i++;
+				while (str[i] != '\"') { cur += str[i]; i++; }
+			} else {
+				cur += c;
+			}
+		}
+		if (!cur.empty())
+			arg_vec.push_back(cur);
+	}
+};
+
+int64_t run_cmd(const CmdArgs& args);
+
+int64_t run_cmd_read_lines(const CmdArgs& args,
+	const std::function<bool(std::string_view)>& stdout_callback,
+	const std::function<bool(std::string_view)>& stderr_callback);
 
 } // namespace cppm

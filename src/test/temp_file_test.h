@@ -7,12 +7,16 @@
 #include <fstream>
 #include <unordered_set>
 
+#ifndef _WIN32
+#include <stdlib.h> // for mkdtemp
+#endif
+
 namespace fs = std::filesystem;
 
 struct TempFileTest {
 public:
 	fs::path current_path;
-	std::filesystem::path tmp_path;
+	fs::path tmp_path;
 	std::string tmp_path_str;
 	std::unordered_set<std::string> all_files_created;
 	std::unordered_set<std::string> all_dirs_created;
@@ -51,11 +55,20 @@ public:
 
 	TempFileTest() {
 		current_path = fs::current_path();
-		// note: std::tmpnam has a deprecation warning
+		
+		// note: std::tmpnam has a deprecation warning 
+#ifdef _WIN32
 		char tmp_dir_name[256];
 		REQUIRE(tmpnam_s(tmp_dir_name) == 0);
-		tmp_path = std::filesystem::temp_directory_path() / "cppm" / std::filesystem::path(tmp_dir_name).filename();
-		REQUIRE(std::filesystem::create_directories(tmp_path));
+		tmp_path = fs::temp_directory_path() / "cppm" / fs::path { tmp_dir_name }.filename();
+		REQUIRE(fs::create_directories(tmp_path));
+#else
+		char tmp_dir_name[256] = "/tmp/cppm_XXXXXX";
+		// todo: use mkstemp 
+		REQUIRE(nullptr != mkdtemp(tmp_dir_name));
+		tmp_path = fs::path { tmp_dir_name };
+#endif
+		
 		tmp_path_str = tmp_path.string();
 	}
 
@@ -63,9 +76,9 @@ public:
 		// note: can't remove tmp_path if something chdir'd into it
 		fs::current_path(current_path);
 		for (auto& file : all_files_created)
-			std::filesystem::remove(tmp_path / file);
+			fs::remove(tmp_path / file);
 		for (auto& dir : all_dirs_created)
-			std::filesystem::remove_all(tmp_path / dir);
-		std::filesystem::remove(tmp_path);
+			fs::remove_all(tmp_path / dir);
+		fs::remove(tmp_path);
 	}
 };

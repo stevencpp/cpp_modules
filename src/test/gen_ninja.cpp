@@ -4,7 +4,7 @@
 
 #include "test_config.h"
 #include "temp_file_test.h"
-#include "util.h"
+#include "cmd_line_utils.h"
 
 namespace gen_ninja {
 
@@ -15,7 +15,7 @@ ConfigString ninja_path { "ninja_path", "ninja", "path to the ninja executable" 
 ConfigString scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
 
 void generate_compilation_database() {
-	CmdArgs gen_cmd;
+	cppm::CmdArgs gen_cmd;
 	// set up the paths to ninja and the compiler toolchain
 	if (vcvarsall_bat != "")
 		gen_cmd.append("call \"{}\" x64 && ", vcvarsall_bat);
@@ -25,12 +25,12 @@ void generate_compilation_database() {
 }
 
 void generate_ninja_from_compilation_database() {
-	CmdArgs tool_gen_cmd { "{} gen_dynamic", scanner_tool_path };
+	cppm::CmdArgs tool_gen_cmd { "{} gen_dynamic", scanner_tool_path };
 	REQUIRE(0 == run_cmd(tool_gen_cmd));
 }
 
 void run_ninja() {
-	CmdArgs ninja_cmd { "{}", ninja_path };
+	cppm::CmdArgs ninja_cmd { "{}", ninja_path };
 	REQUIRE(0 == run_cmd(ninja_cmd));
 }
 

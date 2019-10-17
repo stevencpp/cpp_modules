@@ -6,6 +6,7 @@
 #include <fmt/color.h>
 
 #include "test_config.h"
+#include "cmd_line_utils.h"
 #include "util.h"
 
 namespace fs = std::filesystem;
@@ -67,7 +68,7 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 
 	fmt::print(fmt::fg(fmt::color::yellow), "=== running {} ===\n", test);
 
-	CmdArgs generate_cmd { "cmake -G \"{}\" -A \"{}\" ", p.generator, p.arch };
+	cppm::CmdArgs generate_cmd { "cmake -G \"{}\" -A \"{}\" ", p.generator, p.arch };
 	if(p.toolset != "")
 		generate_cmd.append("-DCMAKE_GENERATOR_TOOLSET={} ", p.toolset);
 	generate_cmd.append("../");
@@ -79,7 +80,7 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 	std::string verbosity_long = "minimal";
 	if (p.verbosity == "d") verbosity_long = "diagnostic";
 	auto log_params = fmt::format("LogFile=build.log;Verbosity={}", verbosity_long);
-	CmdArgs build_cmd { "cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
+	cppm::CmdArgs build_cmd { "cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
 		p.configuration, p.verbosity, build_params, log_params };
 	REQUIRE(0 == run_cmd(build_cmd));
 

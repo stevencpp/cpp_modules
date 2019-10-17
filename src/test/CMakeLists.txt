@@ -22,7 +22,6 @@ add_executable(cppm_test
 	lmdb.cpp
 	gen_ninja.cpp
 	util.h
-	util.cpp
 	test_config.h
 	temp_file_test.h
 )

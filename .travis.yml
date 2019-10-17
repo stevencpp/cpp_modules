@@ -1,15 +1,38 @@
+dist: bionic
 language: cpp
-os: windows
-
+compiler:
+    - clang
+before_install:
+    - wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | sudo apt-key add -
+    - sudo add-apt-repository 'deb https://apt.kitware.com/ubuntu/ bionic main' -y
+    - wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key 2>/dev/null | sudo apt-key add -
+    - sudo add-apt-repository 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main' -y
+    - sudo apt-get update -q
+    - sudo apt-get install -y
+      cmake ninja-build
+      clang-9 lld-9 libc++-9-dev libc++abi-9-dev
+    - dpkg-query -L cmake
+    - whereis cmake
+    - sudo rm /usr/local/cmake
+    - sudo rm -rf /usr/local/cmake-3.12.4
+    - cmake --version
+    - if [ ! -f vcpkg/vcpkg ]; then
+        git clone https://github.com/microsoft/vcpkg.git;
+        cd vcpkg;
+        ./bootstrap-vcpkg.sh;
+        cat /home/travis/build/stevencpp/cpp_modules/vcpkg/toolsrc/build.rel/CMakeFiles/CMakeOutput.log;
+        cat /home/travis/build/stevencpp/cpp_modules/vcpkg/toolsrc/build.rel/CMakeFiles/CMakeError.log;
+        cd ..;
+      fi
+    - export CXX=clang++-9; export CC=clang-9;
+    - export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++";
+    - vcpkg/vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc
+cache:
+    directories:
+        /home/travis/build/stevencpp/cpp_modules/vcpkg
 script:
-    - git clone https://github.com/microsoft/vcpkg.git || travis_terminate 1
-    - cd vcpkg
-    - ./bootstrap-vcpkg.bat || travis_terminate 1
-    - ./vcpkg.exe install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows catch2:x86-windows || travis_terminate 1
-    - cd ..
-    - mkdir build
-    - cd build
-    - choco install cmake ninja || travis_terminate 1
-    - choco upgrade llvm || travis_terminate 1
-    - cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake || travis_terminate 1
-    - cmake --build . || travis_terminate 1
+    - mkdir build;
+      cd build;
+      cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
+        -G "Ninja" ..;
+      ninja;

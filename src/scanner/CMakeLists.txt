@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(lmdb CONFIG REQUIRED)
+find_package(reproc CONFIG REQUIRED)
 #find_package(absl CONFIG REQUIRED)
 
 #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -32,6 +33,7 @@ target_link_libraries(cppm_scanner
 	PRIVATE fmt::fmt
 	PRIVATE lmdb
 	#PRIVATE absl::flat_hash_map absl::hashtablez_sampler
+	PRIVATE cppm_utils
 )
 
 target_include_directories(cppm_scanner
@@ -85,5 +87,6 @@ set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
 install(TARGETS cppm_scanner_cs DESTINATION etc)
 install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION etc)
 install(FILES "$<TARGET_FILE:lmdb>" DESTINATION etc)
+install(FILES "$<TARGET_FILE:reproc>" DESTINATION etc)
 
 endif(MSVC)

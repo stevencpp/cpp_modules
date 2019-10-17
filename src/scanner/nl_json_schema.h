@@ -61,31 +61,31 @@ namespace depinfo { // todo: should be e.g nl_json_schema, but it doesn't compil
 		// leave the default value set for the optional
 	}
 
-	template<typename T>
+	template<typename ObjT>
 	struct RW
 	{
 	private:
 		bool to_json = true;
 		json* j = nullptr;
-		T* t = nullptr;
+		ObjT* obj = nullptr;
 	public:
-		RW(json& j, const T& t) : to_json(true), j(&j), t(const_cast<T*>(&t)) {}
-		RW(const json& j, T& t) : to_json(false), j(const_cast<json*>(&j)), t(&t) {}
+		RW(json& j, const ObjT& obj) : to_json(true), j(&j), obj(const_cast<ObjT*>(&obj)) {}
+		RW(const json& j, ObjT& obj) : to_json(false), j(const_cast<json*>(&j)), obj(&obj) {}
 
-		T* operator->() {
-			return t;
+		ObjT* operator->() {
+			return obj;
 		}
 
 		void json_schema() {}
 
-		template<typename T, typename... Ts>
-		void json_schema(T&& t, const char* key, Ts&&... ts) {
+		template<typename MemberT, typename... MemberTs>
+		void json_schema(MemberT&& member, const char* key, MemberTs&&... members) {
 			if (to_json) {
-				put_to(*j, key, std::forward<T>(t));
+				put_to(*j, key, std::forward<MemberT>(member));
 			} else {
-				get_to(*j, key, std::forward<T>(t));
+				get_to(*j, key, std::forward<MemberT>(member));
 			}
-			json_schema(std::forward<Ts>(ts)...);
+			json_schema(std::forward<MemberTs>(members)...);
 		}
 	};
 }

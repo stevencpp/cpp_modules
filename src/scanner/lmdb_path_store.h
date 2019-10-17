@@ -4,6 +4,8 @@
 
 #include "strong_id.h"
 
+#include <list>
+
 //#include <absl/container/flat_hash_map.h>
 
 namespace mdb {
