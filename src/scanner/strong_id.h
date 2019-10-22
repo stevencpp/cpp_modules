@@ -37,6 +37,7 @@ struct strong_int {
 	id operator++(int) { auto tmp = id { val++ }; return tmp; } \
 	id operator+(uint32_t v) const { return id { val + v }; } \
 	id operator-(uint32_t v) const { return id { val - v }; } \
+	id operator+(const id& i) const { return id { val + i.val }; } \
 };
 
 #define DECL_STRONG_ID(id) DECL_STRONG_ID_INV(id, std::numeric_limits<uint32_t>::max())

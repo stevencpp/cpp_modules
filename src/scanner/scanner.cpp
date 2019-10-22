@@ -22,8 +22,6 @@ namespace cppm {
 DECL_STRONG_ID_INV(file_id_t, 0); // 0 is the invalid file id
 DECL_STRONG_ID(unique_deps_idx_t);
 DECL_STRONG_ID(to_stat_idx_t);
-DECL_STRONG_ID(file_table_idx_t);
-DECL_STRONG_ID(module_table_idx_t);
 DECL_STRONG_ID_INV(db_target_id, 0);
 DECL_STRONG_ID_INV(module_id_t, 0);
 
@@ -78,13 +76,16 @@ struct DB {
 		path_store.update_file_data(files_to_stat, [&](to_stat_idx_t idx) {
 			return file_entry { lwts[files_to_stat[idx]], last_stat_time };
 		});
-
-		path_store.commit_changes(txn_rw);
 	}
 
 	template<typename size_type, typename... Vs>
 	static void resize_all_to(size_type size, Vs&&... vs) {
 		(vs.resize(size), ...);
+	}
+
+	auto get_target_ids(span_map<target_idx_t, std::string_view> targets) {
+		TRACE();
+		return target_store.get_ids(txn_rw, targets);
 	}
 
 	struct item_entry {
@@ -119,20 +120,14 @@ struct DB {
 			DB::resize_all_to(size, file_id, cmd_hash, last_successful_scan, file_deps, item_deps, exports, imports);
 		}
 	};
-
-	auto get_target_ids(span_map<target_idx_t, std::string_view> targets, bool add_if_not_found) {
-		TRACE();
-		return target_store.get_ids(txn_rw, targets, add_if_not_found);
-	}
-
 	auto get_item_data(span_map<target_idx_t, const db_target_id> target_ids, std::string_view item_root_path,
 		span_map<scan_item_idx_t, const ScanItemView> items) 
 	{
 		TRACE();
 		item_data data;
 		data.file_id = get_item_file_ids(item_root_path, items);
-		data.db_max_file_id = path_store.db_max_file_id;
-		data.max_file_id = path_store.max_file_id;
+		data.db_max_file_id = path_store.db_max_file_id + 1;
+		data.max_file_id = path_store.max_file_id + 1;
 
 		data.resize(items.size()); // todo: can we not allocate all this if the DB is empty ?
 
@@ -160,65 +155,22 @@ struct DB {
 		return data;
 	}
 
-	template<typename from_idx_t, typename to_id_t, typename array_idx_t>
-	struct cvt_idx_to_id {
-		// todo: reordering not needed here, a multi_vector_buffer should suffice
-		reordered_multi_vector_buffer<array_idx_t, to_id_t> buffer;
-
-		auto convert(span_map<array_idx_t, tcb::span<from_idx_t>> input, span_map<from_idx_t, to_id_t> map) {
-			std::size_t total_elems = 0;
-			for (auto span : input)
-				total_elems += span.size();
-			buffer.reserve((std::size_t)input.size(), total_elems);
-			// todo: maybe do an in-place convert, overwriting the input spans ?
-			for (auto i : input.indices()) {
-				buffer.new_vector(i);
-				for (auto idx : input[i])
-					buffer.add(map[idx]);
-			}
-			return buffer.to_vectors();
-		}
-
-		auto convert(span_map<array_idx_t, from_idx_t> input, span_map<from_idx_t, to_id_t> map) {
-			buffer.reserve(1, (std::size_t)input.size());
-			buffer.new_vector({});
-			for (auto idx : input)
-				if (idx.is_valid())
-					buffer.add(map[idx]);
-				else
-					buffer.add({});
-			return span_map<array_idx_t, to_id_t> { buffer.get_last_span() };
-		}
-	};
-
 	void update_items( // todo: break this up
 		const vector_map<scan_item_idx_t, ood_state>& item_ood,
 		span_map<target_idx_t, const db_target_id> target_ids,
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		const vector_map<scan_item_idx_t, file_id_t>& item_file_ids,
 		const vector_map<cmd_idx_t, cmd_hash_t>& cmd_hashes,
-		std::string_view item_root_path,
-		const vector_map<file_table_idx_t, std::string_view>& dep_file_table,
 		span_map<scan_item_idx_t, char> got_result,
-		span_map<scan_item_idx_t, tcb::span<file_table_idx_t>> file_deps,
-		span_map<scan_item_idx_t, tcb::span<file_table_idx_t>> item_deps,
-		span_map<module_table_idx_t, std::string_view> module_table,
-		span_map<scan_item_idx_t, module_table_idx_t> exports,
-		span_map<scan_item_idx_t, tcb::span<module_table_idx_t>> imports)
+		span_map<scan_item_idx_t, tcb::span<file_id_t>> file_deps,
+		span_map<scan_item_idx_t, tcb::span<item_id_t>> item_deps,
+		span_map<scan_item_idx_t, module_id_t> exports,
+		span_map<scan_item_idx_t, tcb::span<module_id_t>> imports)
 	{
 		TRACE();
-
-		auto dep_file_ids = path_store.get_file_ids(txn_rw, item_root_path, dep_file_table);
-		auto module_ids = module_store.get_ids(txn_rw, module_table, /*add_if_not_found: */true);
+		module_store.commit_changes(txn_rw);
+		target_store.commit_changes(txn_rw); // todo: order matters to be able to use append ?
 		path_store.commit_changes(txn_rw);
-
-		cvt_idx_to_id<file_table_idx_t, file_id_t, scan_item_idx_t> file_deps_converter;
-		auto file_deps_view = file_deps_converter.convert(file_deps, dep_file_ids);
-		//cvt_idx_to_id<file_table_idx_t, item_id_t, scan_item_idx_t> item_deps_converter; // todo:
-		//auto item_deps_view = item_deps_converter.convert(item_deps, dep_file_ids);
-		cvt_idx_to_id<module_table_idx_t, module_id_t, scan_item_idx_t> exports_converter, imports_converter;
-		auto exports_view = exports_converter.convert(exports, module_ids);
-		auto imports_view = imports_converter.convert(imports, module_ids);
 
 		auto last_successful_scan = file_time_t_now();
 
@@ -236,10 +188,10 @@ struct DB {
 			}, item_entry {
 				cmd_hashes[items[i].command_idx],
 				last_successful_scan,
-				file_deps_view[i],
-				{}, // todo: item_deps_view[i]
-				exports_view[i],
-				imports_view[i]
+				file_deps[i],
+				{}, // todo: item_deps[i]
+				exports[i],
+				imports[i]
 			});
 		}
 	}
@@ -317,7 +269,28 @@ struct DB {
 
 	void commit_transaction() {
 		TRACE();
+		// todo: this is slow, maybe use MDB_MAPASYNC ?
 		txn_rw.commit();
+	}
+
+	// this needs to be called before using try_add_* or get_*
+	void init_stores() {
+		TRACE();
+		module_store.init(txn_rw, {});
+	}
+
+	// note: the input string must be valid until the changes are committed later
+	module_id_t try_add_module(std::string_view name) {
+		return module_store.try_add(name);
+	}
+
+	// note: the input string must be valid until the changes are committed later
+	file_id_t try_add_file(std::string_view path) {
+		return path_store.try_add(path);
+	}
+
+	std::string_view get_module_name(module_id_t id) {
+		return module_store.get(id);
 	}
 };
 
@@ -543,76 +516,28 @@ struct ScannerImpl {
 
 	struct scanner_data {
 		vector_map<scan_item_idx_t, char> got_result;
-		multi_string_buffer<file_table_idx_t> file_table_buf;
-		reordered_multi_vector_buffer<scan_item_idx_t, file_table_idx_t> file_deps_buf, item_deps_buf;
-		multi_string_buffer<module_table_idx_t> module_table_buf;
-		vector_map<scan_item_idx_t, module_table_idx_t> exports;
-		reordered_multi_vector_buffer<scan_item_idx_t, module_table_idx_t> imports_buf;
-
-		auto get_views() {
-			return std::tuple {
-				span_map<scan_item_idx_t, char> { got_result },
-				file_table_buf.to_vector(),
-				file_deps_buf.to_vectors(),
-				item_deps_buf.to_vectors(),
-				module_table_buf.to_vector(),
-				span_map<scan_item_idx_t, module_table_idx_t> { exports },
-				imports_buf.to_vectors()
-			};
-		}
+		stable_multi_string_buffer read_lines;
+		reordered_multi_vector_buffer<scan_item_idx_t, file_id_t> file_deps_buf;
+		reordered_multi_vector_buffer<scan_item_idx_t, item_id_t> item_deps_buf;
+		reordered_multi_vector_buffer<scan_item_idx_t, module_id_t> imports_buf;
 	};
-
 	auto execute_scanner(std::string_view tool_path, std::string_view comp_db_path,
 		std::string_view item_root_path, span_map<scan_item_idx_t, const ScanItemView> items,
-		const std::vector<scan_item_idx_t>& ood_items, DepInfoObserver* observer)
+		const std::vector<scan_item_idx_t>& ood_items, DepInfoObserver* observer,
+		/*inout: */span_map<scan_item_idx_t, tcb::span<file_id_t>> file_deps,
+		/*inout: */span_map<scan_item_idx_t, tcb::span<item_id_t>> item_deps,
+		/*inout: */span_map<scan_item_idx_t, module_id_t> exports,
+		/*inout: */span_map<scan_item_idx_t, tcb::span<module_id_t>> imports)
 	{
 		TRACE();
-
 		scanner_data data;
 		// todo: reserve memory for the other buffers here
 		data.got_result.resize(items.size());
-		data.exports.resize(items.size());
-		for (auto& idx : data.exports)
-			idx.invalidate();
 
 		if (ood_items.empty())
 			return data;
 
-		//std::vector<file_table_idx_t> file_table_indexed_lookup;
-		std::unordered_map<std::string, file_table_idx_t> file_table_lookup;
-		std::unordered_map<std::string, module_table_idx_t> module_table_lookup;
-
-		auto get_file_table_idx = [&](std::string_view file) {
-			// todo: use heterogeneous lookup when available
-			auto str = (std::string)file;
-			auto [itr, inserted] = file_table_lookup.try_emplace(str, file_table_idx_t {});
-			if (inserted)
-				itr->second = data.file_table_buf.add(str);
-			return itr->second;
-		};
-
-		auto get_module_table_idx = [&](std::string_view name) {
-			// todo: use heterogeneous lookup when available
-			auto str = (std::string)name;
-			auto [itr, inserted] = module_table_lookup.try_emplace(str, module_table_idx_t {});
-			if (inserted)
-				itr->second = data.module_table_buf.add(str);
-			return itr->second;
-		};
-
-#if 0
-		auto get_file_table_idx_2 = [&](std::size_t idx, const std::string& str) {
-			auto ft_idx = get_file_table_idx(str);
-			if (file_table_indexed_lookup.size() < idx + 1)
-				file_table_indexed_lookup.resize(idx + 1); // todo: reserve ?
-			file_table_indexed_lookup[idx] = ft_idx;
-			return ft_idx;
-		};
-
-		auto get_file_table_idx_3 = [&](std::size_t idx) {
-			return file_table_indexed_lookup[idx];
-		};
-#endif
+		db.init_stores();
 
 		std::unordered_map<std::string, scan_item_idx_t> item_lookup;
 		for (auto i : items.indices()) {
@@ -629,6 +554,9 @@ struct ScannerImpl {
 		// code page 65001 is UTF-8, use that for the paths - todo: test this
 		CmdArgs cmd { "chcp 65001 & \"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
 		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
+			// todo: use the stable buffer inside run_cmd_read_lines to avoid this copy
+			// todo: store only a single copy of each file/module name
+			line = data.read_lines.copy(line);
 #if 0
 			auto input_file = json_depinfo["input"];
 			auto item_idx = scan_item_idx_t { json_depinfo["_id"].get<std::size_t>() }; // note: otherwise we need to look at the outputs
@@ -649,7 +577,7 @@ struct ScannerImpl {
 			if (nr_lines++ == 0) return true;
 			//fmt::print("{}\n", line);
 			if (starts_with(line, ":::: ")) {
-				if (current_file != "") observer->item_finished();
+				if (observer && current_file != "") observer->item_finished();
 				current_file = line.substr(5);
 				auto itr = item_lookup.find(current_file);
 				if (itr == item_lookup.end())
@@ -659,22 +587,22 @@ struct ScannerImpl {
 				data.item_deps_buf.new_vector(current_item_idx);
 				data.imports_buf.new_vector(current_item_idx);
 				data.got_result[current_item_idx] = true;
-				observer->results_for_item(current_item_idx, /*out_of_date=*/true);
+				if(observer) observer->results_for_item(current_item_idx, /*out_of_date=*/true);
 			} else if (starts_with(line, ":exp ")) {
 				auto name = line.substr(5);
-				data.exports[current_item_idx] = get_module_table_idx(name);
-				observer->export_module(name);
+				exports[current_item_idx] = db.try_add_module(name);
+				if(observer) observer->export_module(name);
 			} else if (starts_with(line, ":imp ")) {
 				auto name = line.substr(5);
-				data.imports_buf.add(get_module_table_idx(name));
-				observer->import_module(name);
+				data.imports_buf.add(db.try_add_module(name));
+				if(observer) observer->import_module(name);
 				// todo: import header unit ?
 			} else {
 				if (line != "" && line != current_file) {
-					data.file_deps_buf.add(get_file_table_idx(line));
+					data.file_deps_buf.add(db.try_add_file(line));
 					// todo: header or other deps ? check extension ? :-/
-					observer->include_header(line);
-					//observer->other_file_dep();
+					if (observer) observer->include_header(line);
+					//if(observer) observer->other_file_dep();
 				}
 			}
 			return true;
@@ -686,14 +614,61 @@ struct ScannerImpl {
 		if(ret != 0)
 			throw std::runtime_error("failed to execute scanner tool");
 
-		if (current_file != "") observer->item_finished();
+		if (observer && current_file != "") observer->item_finished();
+
+		data.file_deps_buf.to_vectors(file_deps);
+		data.item_deps_buf.to_vectors(item_deps);
+		data.imports_buf.to_vectors(imports);
 
 		return data;
+	}
+
+	bool init_module_visitor(ModuleVisitor* module_visitor,
+		span_map<scan_item_idx_t, const ScanItemView> items,
+		span_map<scan_item_idx_t, const module_id_t> exports,
+		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports)
+	{
+		if (exports.empty())
+			return true;
+		TRACE();
+		vector_map<module_id_t, scan_item_idx_t> exported_by;
+		reordered_multi_vector_buffer<scan_item_idx_t, scan_item_idx_t> imports_item_buf;
+
+		module_id_t max_module_id = *std::max_element(exports.begin(), exports.end());
+		exported_by.resize(max_module_id + 1);
+		module_visitor->has_export.resize(exports.size());
+		for (auto idx : exports.indices()) {
+			if (exports[idx].is_valid())
+				exported_by[exports[idx]] = idx;
+			module_visitor->has_export[idx] = (exports[idx].is_valid());
+		}
+
+		for (auto idx : imports.indices()) {
+			imports_item_buf.new_vector(idx);
+			for (module_id_t id : imports[idx]) {
+				auto exp_idx = exported_by[id];
+				if (!exp_idx.is_valid()) {
+					std::string_view name = db.get_module_name(id);
+					if (name == "std.core")
+						continue;
+					fmt::print(stderr, "'{}' imports '{}' which is not exported by any TU\n",
+						items[exp_idx].path, name);
+					module_visitor->missing_imports = true;
+					return false;
+				}
+				imports_item_buf.add(exp_idx);
+			}
+		}
+		module_visitor->imports_item = imports_item_buf.to_vectors();
+		module_visitor->imports_item_buf = imports_item_buf.move_buffer();
+		return true;
 	}
 
 	void submit_up_to_date_items(tcb::span<scan_item_idx_t> utd_items, DB::item_data & item_data, 
 		span_map<file_id_t, std::string_view> file_paths, DepInfoObserver* observer)
 	{
+		if (!observer)
+			return;
 		TRACE();
 		auto module_names = db.get_all_module_names();
 		for (auto i : utd_items) {
@@ -717,7 +692,7 @@ struct ScannerImpl {
 		span_map<target_idx_t, std::string_view> targets, 
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		file_time_t build_start_time, bool concurrent_targets, bool file_tracker_running,
-		DepInfoObserver * observer, bool submit_previous_results)
+		DepInfoObserver * observer, bool submit_previous_results, ModuleVisitor * module_visitor)
 	{
 		TRACE();
 
@@ -734,50 +709,48 @@ struct ScannerImpl {
 		// todo: maybe we could somehow do a read only transaction here
 		// and then switch to a read-write transaction (possibly reading more) only if needed ?
 		db.read_write_transaction();
-		auto target_ids = db.get_target_ids(targets, true); // note: this does some updates currently
+		auto target_ids = db.get_target_ids(targets);
 		auto item_data = db.get_item_data(target_ids, item_root_path, items); // returns new file/item ids for files/items not in the db yet
-		// todo: if concurrent_targets == false, it should be more efficient to assume all files are deps ?
+		// todo: if concurrent_targets == false, it might be more efficient to assume all files are deps ?
 		auto unique_deps = get_unique_deps(item_data.file_deps, item_data.file_id, item_data.max_file_id);
 		auto file_data = db.get_file_data(unique_deps);
 		auto [real_lwt, deps_to_stat] = remove_deps_already_stated(unique_deps,
 			file_data.last_write_time, file_data.last_stat_time, build_start_time, file_tracker_running, item_data.max_file_id);
 		auto need_paths_for = deps_to_stat.to_span();
-		if (submit_previous_results) need_paths_for = unique_deps.to_span();
+		if (observer && submit_previous_results) need_paths_for = unique_deps.to_span();
 		auto file_paths = get_file_paths(item_root_path, items, item_data.file_id, need_paths_for, item_data.max_file_id);
 		// todo: if the log is empty then we can stat items and compute hashes in parallel with scanning
 		get_file_ood(item_root_path, deps_to_stat, file_paths, /*inout: */real_lwt);
 		auto item_ood = get_item_ood(items, item_data, cmd_hashes, real_lwt, /*just for logging*/file_paths); // maybe do the cmd_hashes check later, close txn faster ?
-		// todo: the notification and the write could happen in parallel with scanning
 		auto [ood_items, utd_items] = partition_items_by_ood(item_ood);
-		// todo: don't call unknown code while holding a lock
-		if(submit_previous_results) submit_up_to_date_items(utd_items, item_data, file_paths, observer);
-		// note: the deps/modules in item_data become invalid once we start writing to the db
-		db.update_file_last_write_times(deps_to_stat, real_lwt); // also adds new files
-		// changes to:
-		// targets:
-		// - new target ids
-		// files:
-		// - new last write times / last stat time
-		// - new files from items
-		db.commit_transaction();
+		// todo: the notification and the write could happen in parallel with scanning
+		// note: the observer must not launch another scan on the same DB while we're holding the transaction lock
+		if(observer && submit_previous_results) submit_up_to_date_items(utd_items, item_data, file_paths, observer);
+		// note: the following might add new files but doesn't commit any changes yet
+		db.update_file_last_write_times(deps_to_stat, real_lwt);
 
 		// todo: load/store the minimized source files for clang-scan-deps from the DB
 		// todo: would this be faster with a named pipe ? or sending directly to stdin ?
 		auto comp_db_path = concat_u8_path(int_dir, "pp_commands.json");
 		generate_compilation_database(commands_contain_item_path, commands,
 			item_root_path, items, ood_items, comp_db_path);
-		auto data = execute_scanner(tool_path, comp_db_path, item_root_path, items, ood_items, observer);
-		auto [got_result, dep_file_table, file_deps, item_deps, module_table, exports, imports] = data.get_views();
+		auto data = execute_scanner(tool_path, comp_db_path, item_root_path, items, ood_items, observer,
+			/*inout: */item_data.file_deps, item_data.item_deps, item_data.exports, item_data.imports);
 
-		// todo: add an option to do the DB operations while the scanner is still running
-		// todo: reestime db size ?
-		db.read_write_transaction();
+		if (module_visitor) init_module_visitor(module_visitor, items, item_data.exports, item_data.imports);
+
+		// note: the deps/modules in item_data become invalid once we start writing to the db
+		// note: the hash maps for path/module_store become invalid as well and they're used while scanning
+
 		// todo: maybe break this function up ?
 		db.update_items(item_ood, target_ids, items, item_data.file_id, cmd_hashes, 
-			item_root_path, dep_file_table, got_result, file_deps, item_deps, 
-			module_table, exports, imports);
+			data.got_result, item_data.file_deps, item_data.item_deps, item_data.exports, item_data.imports);
 		// changes to:
+		// targets:
+		// - new ids
 		// files:
+		// - new last write times / last stat time
+		// - new files from items
 		// - new files from deps (added with last_write_time/last_stat_time = 0)
 		// items:
 		// - new cmd hashes
@@ -804,7 +777,7 @@ struct ScannerImpl {
 		db.open(db_path, "scanner.mdb");
 
 		db.read_write_transaction();
-		auto target_ids = db.get_target_ids(targets, false);
+		auto target_ids = db.get_target_ids(targets);
 		auto item_file_ids = db.get_item_file_ids(item_root_path, items);
 		db.remove_items(target_ids, items, item_file_ids); 
 		db.commit_transaction();
@@ -831,16 +804,16 @@ std::string Scanner::scan(const ConfigView & cc)
 	if (c.int_dir.empty()) throw std::runtime_error("must provide an intermediate path");
 	if (ci.targets.empty()) throw std::runtime_error("must provide at least one target");
 
-	DepInfoObserver dummy;
-	if (c.observer == nullptr)
-		c.observer = &dummy;
 	if (c.build_start_time == 0)
 		c.build_start_time = file_time_t_now();
+
+	if (c.module_visitor != nullptr && c.submit_previous_results == false)
+		throw std::runtime_error("previous results are needed for the module visitor");
 
 	auto ret = impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
 		ci.commands_contain_item_path, ci.commands, ci.targets, ci.items,
 		c.build_start_time, c.concurrent_targets, c.file_tracker_running,
-		c.observer, c.submit_previous_results);
+		c.observer, c.submit_previous_results, c.module_visitor);
 
 	return ret;
 }

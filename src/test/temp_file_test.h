@@ -64,7 +64,6 @@ public:
 		REQUIRE(fs::create_directories(tmp_path));
 #else
 		char tmp_dir_name[256] = "/tmp/cppm_XXXXXX";
-		// todo: use mkstemp 
 		REQUIRE(nullptr != mkdtemp(tmp_dir_name));
 		tmp_path = fs::path { tmp_dir_name };
 #endif

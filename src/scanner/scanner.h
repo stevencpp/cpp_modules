@@ -147,6 +147,8 @@ struct DepInfoObserver {
 	};
 	using DataBlockView = std::variant<std::string_view, IndexedStringView, IndexedRawDataBlockView, std::size_t, RawDataBlockView>;
 
+	// todo: maybe use a separate function_ref for each of these
+	// so the user can subscribe to only a subset of them ?
 	virtual void results_for_item(scan_item_idx_t item_idx, bool out_of_date) {}
 	virtual void export_module(DataBlockView name) {}
 	virtual void import_module(DataBlockView name) {}
@@ -154,6 +156,38 @@ struct DepInfoObserver {
 	virtual void import_header(DataBlockView path) {}
 	virtual void other_file_dep(DataBlockView path) {}
 	virtual void item_finished() {}
+};
+
+struct ModuleVisitor {
+	std::vector<scan_item_idx_t> imports_item_buf;
+	vector_map<scan_item_idx_t, bool> has_export;
+	vector_map<scan_item_idx_t, tcb::span<scan_item_idx_t>> imports_item;
+	std::vector<scan_item_idx_t> queue;
+	std::vector<bool> is_in_queue;
+	bool missing_imports = false;
+
+	template<typename F>
+	void visit_transitive_imports(scan_item_idx_t root_idx, F&& visitor_func) {
+		queue.resize((std::size_t)imports_item.size());
+		if (queue.empty())
+			return;
+		is_in_queue.resize((std::size_t)imports_item.size());
+		queue[0] = root_idx;
+		is_in_queue[(std::size_t)root_idx] = true;
+		std::size_t s = 0, e = 0;
+		while (s <= e) {
+			auto idx = queue[s++];
+			if (idx != root_idx)
+				visitor_func(idx);
+			for (auto imp_idx : imports_item[idx]) {
+				if (!is_in_queue[(std::size_t)imp_idx]) {
+					is_in_queue[(std::size_t)imp_idx] = true;
+					queue[++e] = imp_idx;
+				}
+			}
+		}
+		is_in_queue.clear();
+	}
 };
 
 struct ScannerImpl;
@@ -193,6 +227,9 @@ public:
 		DepInfoObserver* observer = nullptr;
 		// submit scan results to the observer from previous scans for up-to-date items
 		bool submit_previous_results = false;
+		// initialize this visitor which helps with resolving transitive imports
+		// note: requires submit_previous_results = true
+		ModuleVisitor* module_visitor = nullptr;
 
 		template<
 			typename other_string_t,
@@ -210,6 +247,7 @@ public:
 			ret.file_tracker_running = conf.file_tracker_running;
 			ret.observer = conf.observer;
 			ret.submit_previous_results = conf.submit_previous_results;
+			ret.module_visitor = conf.module_visitor;
 			return ret;
 		}
 	};

@@ -135,105 +135,12 @@ int NinjaGenerator::gen_dynamic(std::string& comp_db_path, Scanner::Config& c)
 DECL_STRONG_ID_INV(module_id_t, 0);
 
 struct DepsCollector : public DepInfoObserver {
-	ScanItemSet& item_set;
-	module_id_t next_module_id = module_id_t { 1 }; // 0 is reserved for invalid
-	// todo: expose a lower level API from the scanner so we don't have to duplicate this stuff
-	vector_map<module_id_t, scan_item_idx_t> module_exported_by;
-	// todo: create a bidirectional hash-map that doesn't store the strings twice
-	vector_map<module_id_t, std::string> reverse_module_map;
-	std::unordered_map<std::string, module_id_t> module_map;
-	struct module_info {
-		module_id_t exports = {};
-		std::vector<module_id_t> imports;
-	};
-	vector_map<scan_item_idx_t, module_info> item_to_module_info;
-	scan_item_idx_t current_item_idx = {};
-	std::unordered_set<std::string> all_files;
-
-	module_id_t register_module(DataBlockView name) {
-		if (auto pname = std::get_if<std::string_view>(&name); pname) {
-			auto str_name = (std::string) * pname;
-			auto [itr, inserted] = module_map.try_emplace(str_name, next_module_id);
-			if (inserted) {
-				reverse_module_map.emplace_back(std::move(str_name));
-				next_module_id++;
-			}
-			return itr->second;
-		}
-		throw std::runtime_error("failed to get module module name");
-	}
-
-	DepsCollector(ScanItemSet& item_set) : item_set(item_set) {
-		auto nr_items = item_set.items.size();
-		// each item exports at most one module
-		// module id = 0 is reserved for the invalid state
-		module_exported_by.resize(id_cast<module_id_t>(nr_items + 1));
-		module_map.reserve((std::size_t)nr_items + 1);
-		reverse_module_map.reserve(id_cast<module_id_t>(nr_items + 1));
-		reverse_module_map.emplace_back();
-		for (auto& idx : module_exported_by)
-			idx.invalidate();
-		item_to_module_info.resize(nr_items);
-	}
-
-	module_info& get_module_info() {
-		return item_to_module_info[current_item_idx];
-	}
-
-	void results_for_item(scan_item_idx_t item_idx, bool out_of_date) override {
-		current_item_idx = item_idx;
-	}
-	void export_module(DataBlockView name) override {
-		auto id = register_module(name);
-		get_module_info().exports = id;
-		module_exported_by[id] = current_item_idx;
-	}
-	void import_module(DataBlockView name) override {
-		get_module_info().imports.push_back(register_module(name));
-	}
+	std::unordered_set<std::string> all_file_deps;
 	void include_header(DataBlockView path) override {
-		all_files.insert((std::string)std::get<std::string_view>(path));
+		all_file_deps.insert((std::string)std::get<std::string_view>(path));
 	}
-	void import_header(DataBlockView path) override {}
 	void other_file_dep(DataBlockView path) override {
-		all_files.insert((std::string)std::get<std::string_view>(path));
-	}
-	void item_finished() override {}
-
-	std::vector<scan_item_idx_t> queue;
-	std::vector<bool> is_in_queue;
-
-	template<typename F>
-	bool visit_transitive_imports(scan_item_idx_t root_idx, F&& visitor_func) {
-		queue.resize((std::size_t)item_to_module_info.size());
-		if (queue.empty())
-			return true;
-		is_in_queue.resize((std::size_t)item_to_module_info.size());
-		queue[0] = root_idx;
-		is_in_queue[(std::size_t)root_idx] = true;
-		std::size_t s = 0, e = 0;
-		while (s <= e) {
-			auto idx = queue[s++];
-			auto& info = item_to_module_info[idx];
-			if(idx != root_idx)
-				visitor_func(idx);
-			for (module_id_t id : info.imports) {
-				auto exp_idx = module_exported_by[id];
-				if (!exp_idx.is_valid()) {
-					if (reverse_module_map[id] == "std.core")
-						continue;
-					fmt::print(stderr, "'{}' imports '{}' which is not exported by any TU\n",
-						item_set.items[exp_idx].path, reverse_module_map[id]);
-					return false;
-				}
-				if (!is_in_queue[(std::size_t)exp_idx]) {
-					is_in_queue[(std::size_t)exp_idx] = true;
-					queue[++e] = exp_idx;
-				}
-			}
-		}
-		is_in_queue.clear();
-		return true;
+		all_file_deps.insert((std::string)std::get<std::string_view>(path));
 	}
 };
 
@@ -278,9 +185,11 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 	c.item_set = scan_item_set_from_comp_db(
 		NinjaGenerator::comp_db_to_read(comp_db_path, c)
 	);
-	DepsCollector collector(c.item_set);
+	DepsCollector collector;
 	c.observer = &collector;
+	ModuleVisitor module_visitor;
 	c.submit_previous_results = true;
+	c.module_visitor = &module_visitor;
 
 	auto config_owned_view = Scanner::ConfigOwnedView::from(c);
 	auto config_view = Scanner::ConfigView::from(config_owned_view);
@@ -293,7 +202,10 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 		return 1;
 	}
 
-	for (auto file : collector.all_files) {
+	if (module_visitor.missing_imports)
+		return 1;
+
+	for (auto file : collector.all_file_deps) {
 		auto deps_prefix = "Note: including file:"; // = "-";
 		fmt::print("{} {}\n", deps_prefix, file); // ninja looks for the prefix
 	}
@@ -308,8 +220,7 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 	for (auto i : c.item_set.items.indices()) {
 		auto& item = c.item_set.items[i];
 		output_files[i] = get_output_file(item, c);
-		auto& info = collector.item_to_module_info[i];
-		if (info.exports.is_valid()) {
+		if (module_visitor.has_export[i]) {
 			bmi_files[i] = get_bmi_file(output_files[i]);
 			ninja_bmi_files[i] = ninja_escape(bmi_files[i]);
 		}
@@ -325,29 +236,29 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 		rsp_mem.clear();
 		write_if_changed_guard rsp_guard(rsp_mem, response_file);
 
-		auto& info = collector.item_to_module_info[i];
-		if (info.exports.is_valid() || !info.imports.empty()) {
+		bool has_export = (module_visitor.has_export[i]);
+		bool has_import = (!module_visitor.imports_item[i].empty());
+
+		if (has_export || has_import) {
 			std::string ifcdir = get_ifc_path(c.item_set.items[i], c);
 			fmt::format_to(rsp_mem, "/experimental:module /module:stdIfcDir \"{}\"", ifcdir);
 		}
 
-		if (info.exports.is_valid()) {
+		if (has_export) {
 			fmt::print(dd_fout, " | {}", ninja_bmi_files[i]);
 			fmt::format_to(rsp_mem, " /module:interface /module:output \"{}\"", bmi_files[i]);
 		}
 
 		fmt::print(dd_fout, ": dyndep | {}", ninja_escape(response_file));
-		if (info.imports.empty()) {
+		if (!has_import) {
 			fmt::print(dd_fout, "\n");
 			continue;
 		}
 
-		bool ok = collector.visit_transitive_imports(i, [&](scan_item_idx_t exported_by_item_idx) {
+		module_visitor.visit_transitive_imports(i, [&](scan_item_idx_t exported_by_item_idx) {
 			fmt::print(dd_fout, " {}", ninja_bmi_files[exported_by_item_idx]);
 			fmt::format_to(rsp_mem, " /module:reference \"{}\"", bmi_files[exported_by_item_idx]);
 		});
-		if (!ok)
-			return 1;
 		fmt::print(dd_fout, "\n");
 	}
 	return 0;

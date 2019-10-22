@@ -4,11 +4,14 @@
 
 #include "strong_id.h"
 
+#include <filesystem>
 #include <list>
 
 //#include <absl/container/flat_hash_map.h>
 
 namespace mdb {
+
+namespace fs = std::filesystem;
 
 template<
 	typename file_id_t,
@@ -59,12 +62,16 @@ struct path_store {
 	file_id_t db_max_file_id = {};
 	file_id_t max_file_id = {};
 
+	std::unordered_map<std::string, file_id_t> path_lookup;
+
 	std::list<std::string> new_elements;
 
 	char get_preferred_separator() {
-		// todo: maybe use std::filesystem::path::preferred_separator and convert it to char ?
+		// todo: maybe use fs::path::preferred_separator and convert it to char ?
 		return '\\';
 	}
+
+	fs::path p_item_root_path; // todo: maybe init this in the constructor instead ?
 
 	template<typename path_idx_t>
 	auto get_file_ids(mdb::mdb_txn<false> & txn_rw, std::string_view item_root_path, 
@@ -73,7 +80,7 @@ struct path_store {
 		vector_map<path_idx_t, file_id_t> file_ids;
 		file_ids.resize(paths.size());
 
-		auto p_item_root_path = std::filesystem::canonical(item_root_path);
+		p_item_root_path = fs::canonical(item_root_path);
 		char separator = get_preferred_separator();
 
 		// if the a daemon is running to keep things in memory then it should be faster to persist a hash table
@@ -113,14 +120,7 @@ struct path_store {
 		std::vector<file_entry> file_entries;
 #endif
 
-		std::unordered_map<std::string, file_id_t> path_lookup;
-		// todo: compute item hashes in parallel with this
-
-		// todo: when this is called again to look up item deps,
-		// don't read everything again from the DB, just any new files
-		// that might've been added by other processes while scanning
 		bool first = true;
-		file_id_t max_path_id = {};
 		for (auto&& [key, val] : db) {
 			static_assert(std::is_same_v<decltype(key), file_id_t&>, "key must be a copy of path_element_view");
 			//static_assert(std::is_same_v<decltype(key), path_element_view>, "key must be a copy of path_element_view");
@@ -128,10 +128,11 @@ struct path_store {
 			static_assert(std::is_same_v<decltype(val), value_t>, "val must be a copy of value_t");
 
 			if (first) {
-				max_path_id = val.parent_id;
-				db_paths.resize(max_path_id + 1);
-				all_entries.reserve(max_path_id + 1 + (uint32_t)(paths.size()));
-				all_entries.resize(max_path_id + 1);
+				db_max_file_id = val.parent_id;
+				max_file_id = db_max_file_id;
+				db_paths.resize(db_max_file_id + 1);
+				all_entries.reserve(db_max_file_id + 1 + (uint32_t)(paths.size()));
+				all_entries.resize(db_max_file_id + 1);
 				first = false;
 				continue;
 			}
@@ -159,88 +160,87 @@ struct path_store {
 			all_entries.push_back({}); // id=0 is reserved
 		}
 
-		db_max_file_id = max_path_id + 1;
-
-		std::vector<std::size_t> separator_positions;
-
-		std::filesystem::path p;
-		for (auto i : paths.indices()) {
-			p = paths[i];
-			if (p.is_relative()) {
-				// assume that relative paths are already canonical
-				p = p_item_root_path;
-				p /= paths[i];
-				p.make_preferred();
-			} else {
-				// this is an expensive call (I/O):
-				// todo: hash every prefix of the path in non-canonical form
-				// (allow multiple entries in the hash map to point to the same path id)
-				// so that hopefully next time we can avoid this call 
-				p = std::filesystem::canonical(paths[i]);
-			}
-			auto p_str = p.string(); // todo: remove this allocation
-			auto p_view = std::string_view { p_str };
-
-			if (auto itr = path_lookup.find(p_str); itr != path_lookup.end()) {
-				file_ids[i] = itr->second;
-			} else {
-				// find path separator positions
-				std::size_t ofs = 0;
-				separator_positions.clear();
-				while (true) {
-					ofs = p_view.find_first_of("/\\", ofs);
-					if (ofs == std::string_view::npos)
-						break;
-					separator_positions.push_back(ofs);
-					ofs++; // skip the separator
-				}
-
-				// find the offset of the first prefix of path that's not already in the DB
-				// todo: this can be done with binary search ?
-				file_id_t parent_id = {};
-				std::size_t idx = 0;
-				for (auto pos : separator_positions) {
-					auto prefix = p_str.substr(0, pos); // todo: optimize the lookup
-					auto itr = path_lookup.find(prefix);
-					if (itr == path_lookup.end())
-						break;
-					parent_id = itr->second;
-					idx++;
-				}
-
-				// queue new path entries to be inserted into the DB later
-				while (true) {
-					bool at_start = (idx == 0);
-					bool at_end = (idx == separator_positions.size());
-					std::size_t ofs = at_end ? p_str.size() : separator_positions[idx];
-					std::size_t last_ofs = at_start ? 0 : separator_positions[idx - 1] + 1;
-
-					auto tmp_element = std::string_view { &p_view[last_ofs], ofs - last_ofs };
-					// todo: optimize this storage
-					std::string_view element = new_elements.emplace_back((std::string)tmp_element);
-
-					file_id_t new_id = ++max_path_id;
-
-					data_t data = directory_entry {};
-					if (at_end) data = file_entry {};
-
-					all_entries.push_back({ new_id, value_t { parent_id, element, data }, entry_t::new_entry});
-
-					auto prefix = p_str.substr(0, ofs); // todo: optimize the lookup
-					path_lookup[prefix] = new_id;
-
-					if (at_end)	break;
-					parent_id = new_id;
-					++idx;
-				}
-
-				file_ids[i] = max_path_id;
-			}
-		}
-
-		max_file_id = max_path_id + 1;
+		for (auto i : paths.indices())
+			file_ids[i] = try_add(paths[i]);
 
 		return file_ids;
+	}
+
+	// auxiliary variables for try_add (avoid reallocating them all the time):
+	fs::path p;
+	std::vector<std::size_t> separator_positions;
+
+	file_id_t try_add(std::string_view path) {
+		p = path;
+		if (p.is_relative()) {
+			// assume that relative paths are already canonical
+			p = p_item_root_path;
+			p /= path;
+			p.make_preferred();
+		} else {
+			// this is an expensive call (I/O):
+			// todo: hash every prefix of the path in non-canonical form
+			// (allow multiple entries in the hash map to point to the same path id)
+			// so that hopefully next time we can avoid this call 
+			p = fs::canonical(path);
+		}
+		auto p_str = p.string(); // todo: remove this allocation
+		auto p_view = std::string_view { p_str };
+
+		if (auto itr = path_lookup.find(p_str); itr != path_lookup.end())
+			return itr->second;
+
+		// find path separator positions
+		std::size_t ofs = 0;
+		separator_positions.clear();
+		while (true) {
+			ofs = p_view.find_first_of("/\\", ofs);
+			if (ofs == std::string_view::npos)
+				break;
+			separator_positions.push_back(ofs);
+			ofs++; // skip the separator
+		}
+
+		// find the offset of the first prefix of path that's not already in the DB
+		// todo: this can be done with binary search ?
+		file_id_t parent_id = {};
+		std::size_t idx = 0;
+		for (auto pos : separator_positions) {
+			auto prefix = p_str.substr(0, pos); // todo: optimize the lookup
+			auto itr = path_lookup.find(prefix);
+			if (itr == path_lookup.end())
+				break;
+			parent_id = itr->second;
+			idx++;
+		}
+
+		// queue new path entries to be inserted into the DB later
+		while (true) {
+			bool at_start = (idx == 0);
+			bool at_end = (idx == separator_positions.size());
+			std::size_t ofs = at_end ? p_str.size() : separator_positions[idx];
+			std::size_t last_ofs = at_start ? 0 : separator_positions[idx - 1] + 1;
+
+			auto tmp_element = std::string_view { &p_view[last_ofs], ofs - last_ofs };
+			// todo: optimize this storage
+			std::string_view element = new_elements.emplace_back((std::string)tmp_element);
+
+			file_id_t new_id = ++max_file_id;
+
+			data_t data = directory_entry {};
+			if (at_end) data = file_entry {};
+
+			all_entries.push_back({ new_id, value_t { parent_id, element, data }, entry_t::new_entry });
+
+			auto prefix = p_str.substr(0, ofs); // todo: optimize the lookup
+			path_lookup[prefix] = new_id;
+
+			if (at_end)	break;
+			parent_id = new_id;
+			++idx;
+		}
+
+		return max_file_id;
 	}
 
 	template<typename idx_t, typename F>
@@ -249,7 +249,7 @@ struct path_store {
 			auto file_id = files[idx];
 			if (file_id >= all_entries.size())
 				throw std::invalid_argument("bad file id");
-			if (file_id >= db_max_file_id) // no data for new files
+			if (file_id > db_max_file_id) // no data for new files
 				continue;
 			auto& entry = all_entries[file_id];
 			if (auto f_entry = std::get_if<file_entry>(&entry.value.data))
