@@ -6,6 +6,16 @@ find_package(lmdb CONFIG REQUIRED)
 find_package(reproc CONFIG REQUIRED)
 #find_package(absl CONFIG REQUIRED)
 
+include(FetchContent)
+
+FetchContent_Declare(
+  ninja
+  GIT_REPOSITORY https://github.com/stevencpp/ninja.git
+  GIT_TAG        288394761746a8c69b9b94f76ebc4cd761d06475
+)
+
+FetchContent_MakeAvailable(ninja)
+
 #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # ==== main library ====
@@ -46,6 +56,10 @@ endif()
 
 set_property(TARGET cppm_scanner PROPERTY CXX_STANDARD 17)
 set_property(TARGET cppm_scanner PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Files\\LLVM")
+
+target_link_libraries(libninja PRIVATE cppm_scanner PRIVATE cppm_utils PRIVATE fmt::fmt)
+target_link_libraries(ninja PRIVATE cppm_scanner)
+target_compile_definitions(libninja PRIVATE "WIN32_LEAN_AND_MEAN")
 
 # ==== executable tool ====
 add_executable(cppm_scanner_tool

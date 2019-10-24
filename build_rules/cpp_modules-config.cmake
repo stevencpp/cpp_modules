@@ -18,20 +18,24 @@ macro(required_find_program var name)
 	required_find_common(${var} ${name})
 endmacro()
 
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
 required_find_path(CPPM_TARGETS_PATH cpp_modules.targets
 	HINTS "${CMAKE_CURRENT_LIST_DIR}/../etc" DOC "path containing cpp_modules.targets and its dependencies")
+endif()
 
 function(target_cpp_modules targets)
 	foreach(target ${ARGV})
 		set_property(TARGET ${target} PROPERTY CXX_STANDARD 20)
-		#the following doesn't set EnableModules and so /module:stdifcdir is also not set:
-		#target_compile_options(${target} PRIVATE "/experimental:module") 
-		#so use a property sheet instead to set EnableModules:
-		set_property(TARGET ${target} PROPERTY VS_USER_PROPS ${CPPM_TARGETS_PATH}/cpp_modules.props)
+		if(CMAKE_GENERATOR MATCHES "Visual Studio")
+			#the following doesn't set EnableModules and so /module:stdifcdir is also not set:
+			#target_compile_options(${target} PRIVATE "/experimental:module") 
+			#so use a property sheet instead to set EnableModules:
+			set_property(TARGET ${target} PROPERTY VS_USER_PROPS ${CPPM_TARGETS_PATH}/cpp_modules.props)
 
-		target_link_libraries(${target}
-			${CPPM_TARGETS_PATH}/cpp_modules.targets
-		)
+			target_link_libraries(${target}
+				${CPPM_TARGETS_PATH}/cpp_modules.targets
+			)
+		endif()
 	endforeach()
 	
 	add_library(_CPPM_ALL_BUILD EXCLUDE_FROM_ALL ${CPPM_TARGETS_PATH}/dummy.cpp)

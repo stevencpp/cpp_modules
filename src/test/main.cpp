@@ -13,6 +13,38 @@
 
 namespace fs = std::filesystem;
 
+ConfigString vcvarsall_bat { "vcvarsall_bat", "", "the path to vcvarsall.bat" };
+ConfigString working_dir { "working_dir", "", "working dir" };
+
+bool update_environment() {
+	fmt::print("updating the environment ... ");
+	// set up the paths to ninja and the compiler toolchain
+	bool initialized = false, failed = false;
+	cppm::CmdArgs vars_cmd { "call \"{}\" x64 && set", vcvarsall_bat };
+	auto ret = run_cmd_read_lines(vars_cmd, [&](std::string_view line) {
+		//fmt::print("> {}\n", line);
+		if (!initialized) {
+			if (line.find("Environment initialized") != std::string_view::npos)
+				initialized = true;
+		} else if (0 != putenv(((std::string)line).c_str())) {
+			fmt::print("> {}\n", line);
+			failed = true;
+			return false;
+		}
+		return true;
+	}, [&](std::string_view err_line) {
+		fmt::print("ERR: {}\n", err_line);
+		failed = true;
+		return true;
+	});
+	if (ret != 0 || failed) {
+		fmt::print("failed\n");
+		return false;
+	}
+	fmt::print("ok\n");
+	return true;
+}
+
 int unguarded_main(int argc, char* argv[])
 {
 	Catch::Session session; // There must be exactly one instance
@@ -25,8 +57,6 @@ int unguarded_main(int argc, char* argv[])
 		cli |= Opt(*conf_string, conf_string->description)
 			[opt_name] (conf_string->description);
 	}
-	std::string working_dir;
-	cli |= Opt(working_dir, "working dir")["--working_dir"];
 	session.cli(cli);
 
 	// writing to session.configData() here sets defaults
@@ -50,7 +80,9 @@ int unguarded_main(int argc, char* argv[])
 	// only do this if you know you need to
 
 	if (working_dir != "")
-		fs::current_path(working_dir);
+		fs::current_path(working_dir.str());
+	if (vcvarsall_bat != "" && !update_environment())
+		return 1;
 
 	int numFailed = session.run();
 

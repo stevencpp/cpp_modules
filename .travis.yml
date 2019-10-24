@@ -27,6 +27,7 @@ before_install:
     - export CXX=clang++-9; export CC=clang-9;
     - export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++";
     - vcpkg/vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc
+    - rm -rf vcpkg/downloads vcpkg/buildtrees
 cache:
     directories:
         /home/travis/build/stevencpp/cpp_modules/vcpkg

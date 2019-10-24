@@ -275,7 +275,7 @@ int64_t run_cmd_read_lines(const CmdArgs& args,
 				bool found_newline = (newline_pos != std::string_view::npos);
 				std::string_view line_part = str.substr(0, newline_pos);
 				std::string_view full_line = line_part;
-				if (!line_buf.empty()) {
+				if (!line_buf.empty() || !found_newline) {
 					// if last time we didn't find a newline in the buffer
 					// then this is a continuation of the same line
 					line_buf.insert(line_buf.end(), line_part.begin(), line_part.end());

@@ -161,15 +161,20 @@ struct TempFileScanTest : public TempFileTest {
 private:
 	cppm::ScanItemSet item_set;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_results;
+	std::unique_ptr<cppm::ModuleVisitor> module_visitor_result;
 	std::size_t nr_results = 0;
-	depinfo::DepFormat all_expected;
-
+	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_expected;
+	std::vector<std::vector<std::size_t>> expected_module_imports;
 public:
 	bool submit_previous_results = false;
 
-	void set_expected(const depinfo::DepFormat& expected) {
-		all_expected = expected;
-		init_optionals(all_expected);
+	void set_expected(depinfo::DepFormat expected, std::vector<std::vector<std::size_t>> expected_module_imports = {}) {
+		init_optionals(expected);
+		// todo: this assumes expected.sources is ordered the same as item_set.items
+		for (auto& depinfo : expected.sources)
+			all_expected.push_back(std::move(depinfo));
+		this->expected_module_imports = std::move(expected_module_imports);
+		this->expected_module_imports.resize((std::size_t)all_expected.size());
 	}
 
 	TempFileScanTest() : TempFileTest() {
@@ -197,6 +202,8 @@ public:
 		auto item_set_owned_view = cppm::ScanItemSetOwnedView::from(item_set);
 		auto item_set_view = cppm::ScanItemSetView::from(item_set_owned_view);
 
+		module_visitor_result = std::make_unique<cppm::ModuleVisitor>();
+
 		DepInfoCollector collector(item_set_view.items);
 
 		cppm::Scanner::ConfigView config;
@@ -210,6 +217,8 @@ public:
 		config.file_tracker_running = false;
 		config.observer = &collector;
 		config.submit_previous_results = submit_previous_results;
+		if(submit_previous_results)
+			config.module_visitor = module_visitor_result.get();
 
 		cppm::Scanner scanner;
 		
@@ -291,7 +300,7 @@ public:
 			if (!is_ood[item_idx] && !submit_previous_results)
 				continue;
 			depinfo::DepInfo& res_info = all_results[item_idx];
-			depinfo::DepInfo& exp_info = all_expected.sources[(std::size_t)item_idx];
+			depinfo::DepInfo& exp_info = all_expected[item_idx];
 
 			init_optionals(res_info);
 
@@ -308,6 +317,14 @@ public:
 			auto res_requires = get_module_names(res_fc.require);
 			auto exp_requires = get_module_names(exp_fc.require);
 			CHECK_THAT(res_requires, UnorderedEquals(exp_requires));
+
+			if (submit_previous_results) {
+				std::vector<std::size_t> res_imports;
+				for (auto imp_idx : module_visitor_result->imports_item[item_idx])
+					res_imports.push_back((std::size_t)imp_idx);
+				auto& exp_imports = expected_module_imports[(std::size_t)item_idx];
+				CHECK_THAT(res_imports, UnorderedEquals(exp_imports));
+			}
 		}
 	}
 
@@ -401,6 +418,7 @@ import b;
 	test.create_items(R"(
 > a.cpp
 export module a;
+import std.core;
 > b.cpp
 export module b;
 #include "a.h"
@@ -413,7 +431,8 @@ export module b;
 	using fc = depinfo::FutureDepInfo;
 	depinfo::DepInfo a_cpp_info = { .input = "a.cpp", 
 		.future_compile = fc {
-			.provide = vmd { { .logical_name = "a" } }
+			.provide = vmd { { .logical_name = "a" } },
+			.require = vmd { { .logical_name = "std.core" } }
 		}
 	};
 	depinfo::DepInfo b_cpp_info = { .input = "b.cpp", .depends = vdb{ "a.h" },
@@ -427,7 +446,8 @@ export module b;
 			.require = vmd { { .logical_name = "a" }, { .logical_name = "b" } }
 		}
 	};
-	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info } });
+	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info } },
+		{ {},{0},{0,1} });
 
 	ood_idx a { 0 }, b { 1 }, c { 2 };
 

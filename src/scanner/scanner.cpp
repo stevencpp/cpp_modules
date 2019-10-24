@@ -537,8 +537,6 @@ struct ScannerImpl {
 		if (ood_items.empty())
 			return data;
 
-		db.init_stores();
-
 		std::unordered_map<std::string, scan_item_idx_t> item_lookup;
 		for (auto i : items.indices()) {
 			// note: this doesn't work if there are multiple items with the same file path
@@ -636,6 +634,8 @@ struct ScannerImpl {
 
 		module_id_t max_module_id = *std::max_element(exports.begin(), exports.end());
 		exported_by.resize(max_module_id + 1);
+		for (auto& idx : exported_by)
+			idx.invalidate();
 		module_visitor->has_export.resize(exports.size());
 		for (auto idx : exports.indices()) {
 			if (exports[idx].is_valid())
@@ -728,6 +728,8 @@ struct ScannerImpl {
 		if(observer && submit_previous_results) submit_up_to_date_items(utd_items, item_data, file_paths, observer);
 		// note: the following might add new files but doesn't commit any changes yet
 		db.update_file_last_write_times(deps_to_stat, real_lwt);
+		if(module_visitor || ood_items.size() > 0)
+			db.init_stores(); // used by execute_scanner and init_module_visitor
 
 		// todo: load/store the minimized source files for clang-scan-deps from the DB
 		// todo: would this be faster with a named pipe ? or sending directly to stdin ?
