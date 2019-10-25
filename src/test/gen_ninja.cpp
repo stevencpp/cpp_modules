@@ -15,9 +15,13 @@ ConfigString ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug
 ConfigString scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
 
 void generate_compilation_database() {
-	cppm::CmdArgs gen_cmd;
-	gen_cmd.append("cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
-		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path);
+	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
+		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
+	REQUIRE(0 == run_cmd(gen_cmd));
+}
+
+void generate_ninja() {
+	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
@@ -43,10 +47,6 @@ void run_ninja(std::string current_ninja_path, bool expect_no_work_to_do) {
 	REQUIRE(ret == 0);
 	REQUIRE(failed == false);
 	REQUIRE(found_no_work_to_do == expect_no_work_to_do);
-}
-
-void generate_ninja() {
-	generate_compilation_database();
 }
 
 void make_absolute(ConfigString& str) {

@@ -167,9 +167,10 @@ std::string get_command_line_argument(std::string_view command_line, int idx)
 }
 
 void CmdArgs::init() {
-	// todo: needs to be different for *nix
+#ifdef _WIN32
 	arg_vec.push_back("cmd");
 	arg_vec.push_back("/C");
+#endif
 }
 
 static auto to_argv(const CmdArgs& args) {

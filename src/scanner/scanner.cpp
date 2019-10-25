@@ -495,11 +495,16 @@ struct ScannerImpl {
 			return;
 		TRACE();
 
+		auto directory = (std::string)item_root_path;
+		// currently clang-scan-deps has an assert that this is set, though it may be a bug
+		if (directory.empty())
+			directory = fs::current_path().string();
+
 		auto json_array = nlohmann::json();
 		for (auto i : ood_items) {
 			auto json = nlohmann::json();
-			json["directory"] = item_root_path;
-			auto path = get_rooted_path(item_root_path, items[i].path).string();
+			json["directory"] = directory;
+			auto path = get_rooted_path(directory, items[i].path).string();
 			json["file"] = path;
 			std::string cmd = (std::string)commands[items[i].command_idx];
 			if (!commands_contain_item_path) cmd += fmt::format(" \"{}\"", path);
@@ -545,13 +550,13 @@ struct ScannerImpl {
 		auto starts_with = [](std::string_view a, std::string_view b) {
 			return (a.substr(0, b.size()) == b);
 		};
-		int nr_lines = 0;
 		std::string current_file;
 		scan_item_idx_t current_item_idx = {};
 
-		// code page 65001 is UTF-8, use that for the paths - todo: test this
-		CmdArgs cmd { "chcp 65001 & \"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
+		CmdArgs cmd { "\"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
 		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
+			//fmt::print("{}\n", line);
+
 			// todo: use the stable buffer inside run_cmd_read_lines to avoid this copy
 			// todo: store only a single copy of each file/module name
 			line = data.read_lines.copy(line);
@@ -571,9 +576,6 @@ struct ScannerImpl {
 			}
 #endif
 
-			// skip the first line: active code page ..
-			if (nr_lines++ == 0) return true;
-			//fmt::print("{}\n", line);
 			if (starts_with(line, ":::: ")) {
 				if (observer && current_file != "") observer->item_finished();
 				current_file = line.substr(5);

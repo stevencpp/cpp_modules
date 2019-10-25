@@ -2,6 +2,10 @@
 
 #include <lmdb.h>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 #include "lmdb_wrapper_impl.h"
 
 namespace mdb {
@@ -228,7 +232,11 @@ private:
 public:
 	MDB_env* get() { return env.get(); }
 	void open(const char* path, flags::env env_flags) {
-		int ret = mdb_env_open(env.get(), path, env_flags, 0);
+		mdb_mode_t mode = 0;
+#ifndef _WIN32
+		mode = S_IRUSR | S_IWUSR;
+#endif
+		int ret = mdb_env_open(env.get(), path, env_flags, mode);
 		impl::handle_mdb_error(ret, "failed to open lmdb env");
 	}
 

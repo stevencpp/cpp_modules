@@ -16,6 +16,7 @@ before_install:
     - sudo rm /usr/local/cmake
     - sudo rm -rf /usr/local/cmake-3.12.4
     - cmake --version
+    
     - if [ ! -f vcpkg/vcpkg ]; then
         git clone https://github.com/microsoft/vcpkg.git;
         cd vcpkg;
@@ -25,15 +26,30 @@ before_install:
         cd ..;
       fi
     - export CXX=clang++-9; export CC=clang-9;
-    - export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++";
+    - export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
     - vcpkg/vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc
     - rm -rf vcpkg/downloads vcpkg/buildtrees
+    
+#    - if [ ! -f llvm-build/bin/clang-scan-deps ]; then
+#        git clone --depth 1 https://github.com/stevencpp/llvm-project.git;
+#        mkdir -p llvm-build && cd llvm-build;
+#        cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS='clang' -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm;
+#        ninja clang-scan-deps;
+#        cd ..;
+#      fi
+    - curl -fsSL -o clang-scan-deps "https://drive.google.com/uc?export=download&id=1JspP_ML6WS1b6MZdr5NGvXAkRfWQdgr1"
+    - chmod +x clang-scan-deps
 cache:
-    directories:
+    - ccache
+    - directories:
         /home/travis/build/stevencpp/cpp_modules/vcpkg
+        /home/travis/build/stevencpp/cpp_modules/llvm-build/bin
 script:
-    - mkdir build;
-      cd build;
+    - mkdir build &&
+      cd build &&
       cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
-        -G "Ninja" ..;
-      ninja;
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        -G "Ninja" .. &&
+      ninja &&
+      cd src/test &&
+      ./cppm_test [lmdb],[scanner] --clang_scan_deps_path=../../../clang-scan-deps

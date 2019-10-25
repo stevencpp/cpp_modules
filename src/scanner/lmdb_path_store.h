@@ -68,7 +68,11 @@ struct path_store {
 
 	char get_preferred_separator() {
 		// todo: maybe use fs::path::preferred_separator and convert it to char ?
+#ifdef _WIN32
 		return '\\';
+#else
+		return '/';
+#endif
 	}
 
 	fs::path p_item_root_path; // todo: maybe init this in the constructor instead ?
@@ -122,6 +126,7 @@ struct path_store {
 
 		bool first = true;
 		for (auto&& [key, val] : db) {
+			//fmt::print("path store: {} = {},{}\n", (std::size_t)key, (std::size_t)val.parent_id, val.name);
 			static_assert(std::is_same_v<decltype(key), file_id_t&>, "key must be a copy of path_element_view");
 			//static_assert(std::is_same_v<decltype(key), path_element_view>, "key must be a copy of path_element_view");
 			//static_assert(std::is_same_v<decltype(val), value_t&>, "val must be an l-value ref to the data");

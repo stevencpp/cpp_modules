@@ -10,6 +10,7 @@
 #include "cmd_line_utils.h"
 
 #include <filesystem>
+#include <stdlib.h>
 
 namespace fs = std::filesystem;
 
@@ -26,7 +27,7 @@ bool update_environment() {
 		if (!initialized) {
 			if (line.find("Environment initialized") != std::string_view::npos)
 				initialized = true;
-		} else if (0 != putenv(((std::string)line).c_str())) {
+		} else if (0 != putenv((char*)((std::string)line).c_str())) {
 			fmt::print("> {}\n", line);
 			failed = true;
 			return false;
