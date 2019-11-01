@@ -21,14 +21,18 @@ before_install:
         git clone https://github.com/microsoft/vcpkg.git;
         cd vcpkg;
         ./bootstrap-vcpkg.sh;
-        cat /home/travis/build/stevencpp/cpp_modules/vcpkg/toolsrc/build.rel/CMakeFiles/CMakeOutput.log;
-        cat /home/travis/build/stevencpp/cpp_modules/vcpkg/toolsrc/build.rel/CMakeFiles/CMakeError.log;
+        cat toolsrc/build.rel/CMakeFiles/CMakeOutput.log;
+        cat toolsrc/build.rel/CMakeFiles/CMakeError.log;
         cd ..;
       fi
     - export CXX=clang++-9; export CC=clang-9;
     - export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
-    - vcpkg/vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc
-    - rm -rf vcpkg/downloads vcpkg/buildtrees
+    - cd vcpkg
+    - git pull
+    - ./vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc
+    - ./vcpkg upgrade --no-dry-run
+    - rm -rf downloads buildtrees packages
+    - cd ..
     
 #    - if [ ! -f llvm-build/bin/clang-scan-deps ]; then
 #        git clone --depth 1 https://github.com/stevencpp/llvm-project.git;
@@ -52,4 +56,9 @@ script:
         -G "Ninja" .. &&
       ninja &&
       cd src/test &&
-      ./cppm_test [lmdb],[scanner] --clang_scan_deps_path=../../../clang-scan-deps
+      ./cppm_test [lmdb],[scanner],[gen_ninja]
+        --clang_scan_deps_path=../../../clang-scan-deps
+        --clang_c_path=`which clang-9`
+        --clang_cxx_path=`which clang++-9`
+        --ninja_path=`which ninja`
+        --ninja_fork_path=../../_deps/ninja-build/ninja

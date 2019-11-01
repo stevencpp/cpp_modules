@@ -53,7 +53,7 @@ int unguarded_main(int argc, char* argv[])
 	using namespace Catch::clara;
 	auto config = TestConfig::instance();
 	auto cli = session.cli();
-	for (auto& conf_string : config->strings) {
+	for (auto& [key, conf_string] : config->strings) {
 		std::string opt_name = "--"; opt_name += conf_string->name;
 		cli |= Opt(*conf_string, conf_string->description)
 			[opt_name] (conf_string->description);
@@ -69,6 +69,10 @@ int unguarded_main(int argc, char* argv[])
 	});
 	if (returnCode != 0) // Indicates a command line error
 		return returnCode;
+
+	for (auto& [key, conf_string] : config->strings)
+		for (auto& alt_string : conf_string->alts)
+			alt_string->assign(conf_string->str());
 
 	if (session.configData().testsOrTags.empty()) {
 		session.configData().testsOrTags = {

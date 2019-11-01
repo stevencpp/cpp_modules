@@ -9,6 +9,7 @@
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/ostream.h>
 
+#include "module_cmdgen.h"
 #include "cmd_line_utils.h"
 #include "scanner.h"
 #include "trace.h"
@@ -45,14 +46,6 @@ std::string NinjaGenerator::comp_db_to_read(std::string_view comp_db_path, const
 std::string get_output_file(ScanItem& item, Scanner::Config& c) {
 	auto& cmd = c.item_set.commands[item.command_idx];
 	return find_command_line_argument(cmd, "/Fo"); // todo:
-}
-
-std::string get_ifc_path(ScanItem& item, Scanner::Config& c) {
-	auto& cmd = c.item_set.commands[item.command_idx];
-	fs::path cl_path = get_command_line_argument(cmd, 0); // todo:
-	cl_path.remove_filename();
-	fs::path arch = cl_path.parent_path().filename();
-	return (cl_path / "../../../ifc" / arch).string();
 }
 
 std::string get_input_file(ScanItem& item, Scanner::Config& c) {
@@ -220,44 +213,33 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 	for (auto i : c.item_set.items.indices()) {
 		auto& item = c.item_set.items[i];
 		output_files[i] = get_output_file(item, c);
-		if (module_visitor.has_export[i]) {
+		if (!module_visitor.exports[i].empty()) {
 			bmi_files[i] = get_bmi_file(output_files[i]);
 			ninja_bmi_files[i] = ninja_escape(bmi_files[i]);
 		}
 	}
 
-	fmt::memory_buffer rsp_mem;
-	rsp_mem.reserve(16 * 1024);
+	ModuleCommandGenerator cmd_gen { config_view.item_set, module_visitor };
+	
 	for (auto i : c.item_set.items.indices()) {
 		std::string& output_file = output_files[i];
 		std::string response_file = get_response_file(output_file);
-		fmt::print(dd_fout, "build {}", ninja_escape(output_file));
 
-		rsp_mem.clear();
-		write_if_changed_guard rsp_guard(rsp_mem, response_file);
+		auto format = ModuleCommandGenerator::Format { ModuleCommandGenerator::MSVC } ;
+		cmd_gen.generate(i, format, [&](scan_item_idx_t idx) -> std::string_view {
+			return bmi_files[idx];
+		});
+		write_if_changed_guard rsp_guard(cmd_gen.cmd_buf, response_file);
 
-		bool has_export = (module_visitor.has_export[i]);
+		bool has_export = (!module_visitor.exports[i].empty());
 		bool has_import = (!module_visitor.imports_item[i].empty());
 
-		if (has_export || has_import) {
-			std::string ifcdir = get_ifc_path(c.item_set.items[i], c);
-			fmt::format_to(rsp_mem, "/experimental:module /module:stdIfcDir \"{}\"", ifcdir);
-		}
-
-		if (has_export) {
+		fmt::print(dd_fout, "build {}", ninja_escape(output_file));
+		if (has_export)
 			fmt::print(dd_fout, " | {}", ninja_bmi_files[i]);
-			fmt::format_to(rsp_mem, " /module:interface /module:output \"{}\"", bmi_files[i]);
-		}
-
 		fmt::print(dd_fout, ": dyndep | {}", ninja_escape(response_file));
-		if (!has_import) {
-			fmt::print(dd_fout, "\n");
-			continue;
-		}
-
 		module_visitor.visit_transitive_imports(i, [&](scan_item_idx_t exported_by_item_idx) {
 			fmt::print(dd_fout, " {}", ninja_bmi_files[exported_by_item_idx]);
-			fmt::format_to(rsp_mem, " /module:reference \"{}\"", bmi_files[exported_by_item_idx]);
 		});
 		fmt::print(dd_fout, "\n");
 	}

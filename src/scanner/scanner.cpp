@@ -519,6 +519,28 @@ struct ScannerImpl {
 		db_out.close();
 	}
 
+	template<typename F>
+	auto run_cmd_parse_json(CmdArgs& cmd, F&& f) {
+		// todo: maybe avoid the double buffering
+		std::vector<char> json_buf;
+		bool failed = false;
+		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
+			json_buf.insert(json_buf.end(), line.begin(), line.end());
+			if (line == "},") { // todo: this is specific to clang-scan-deps' output
+				json_buf.pop_back();
+				f(nlohmann::json::parse(json_buf));
+				json_buf.clear();
+			}
+			return true;
+		}, [&](std::string_view err_line) {
+			fmt::print("ERR: {}\n", err_line);
+			failed = true;
+			return true;
+		});
+		if (failed) ret = -1;
+		return ret;
+	}
+
 	struct scanner_data {
 		vector_map<scan_item_idx_t, char> got_result;
 		stable_multi_string_buffer read_lines;
@@ -554,12 +576,8 @@ struct ScannerImpl {
 		scan_item_idx_t current_item_idx = {};
 
 		CmdArgs cmd { "\"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
-		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
-			//fmt::print("{}\n", line);
-
-			// todo: use the stable buffer inside run_cmd_read_lines to avoid this copy
-			// todo: store only a single copy of each file/module name
-			line = data.read_lines.copy(line);
+#if 0
+		auto ret = run_cmd_parse_json(cmd, [&](const nlohmann::json& json) {
 #if 0
 			auto input_file = json_depinfo["input"];
 			auto item_idx = scan_item_idx_t { json_depinfo["_id"].get<std::size_t>() }; // note: otherwise we need to look at the outputs
@@ -575,7 +593,16 @@ struct ScannerImpl {
 				item_deps_buf.add(get_file_table_idx(src_path));
 			}
 #endif
+		});
+#endif
 
+#if 1
+		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
+			//fmt::print("{}\n", line);
+
+			// todo: use the stable buffer inside run_cmd_read_lines to avoid this copy
+			// todo: store only a single copy of each file/module name
+			line = data.read_lines.copy(line);
 			if (starts_with(line, ":::: ")) {
 				if (observer && current_file != "") observer->item_finished();
 				current_file = line.substr(5);
@@ -610,6 +637,7 @@ struct ScannerImpl {
 			fmt::print("ERR: {}\n", err_line);
 			return true;
 		});
+#endif
 
 		if(ret != 0)
 			throw std::runtime_error("failed to execute scanner tool");
@@ -638,12 +666,25 @@ struct ScannerImpl {
 		exported_by.resize(max_module_id + 1);
 		for (auto& idx : exported_by)
 			idx.invalidate();
-		module_visitor->has_export.resize(exports.size());
-		for (auto idx : exports.indices()) {
+		module_visitor->exports.resize(exports.size());
+
+		std::size_t module_names_size = 0;
+		for (auto idx : exports.indices())
 			if (exports[idx].is_valid())
+				module_names_size += db.get_module_name(exports[idx]).size();
+		module_visitor->modules_buf.reserve(module_names_size);
+
+		for (auto idx : exports.indices()) {
+			if (exports[idx].is_valid()) {
 				exported_by[exports[idx]] = idx;
-			module_visitor->has_export[idx] = (exports[idx].is_valid());
+				auto name = db.get_module_name(exports[idx]);
+				auto new_data = module_visitor->modules_buf.data() + module_visitor->modules_buf.size();
+				auto itr = module_visitor->modules_buf.insert(module_visitor->modules_buf.end(),
+					name.begin(), name.end());
+				module_visitor->exports[idx] = std::string_view { new_data, name.size() };
+			}
 		}
+		assert(module_visitor->modules_buf.size() == module_names_size);
 
 		for (auto idx : imports.indices()) {
 			imports_item_buf.new_vector(idx);

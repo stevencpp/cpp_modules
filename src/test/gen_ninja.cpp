@@ -1,6 +1,7 @@
 #include <catch2/catch.hpp>
 #include <fmt/core.h>
 #include <filesystem>
+#include <fstream>
 
 #include "test_config.h"
 #include "temp_file_test.h"
@@ -13,6 +14,14 @@ namespace fs = std::filesystem;
 ConfigString ninja_path { "ninja_path", "ninja", "path to the ninja executable" };
 ConfigString ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/ninja.exe", "path to the ninja executable" };
 ConfigString scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
+ConfigString clang_c_path { "clang_c_path", R"(C:\Program Files\LLVM\bin\clang.exe)" };
+ConfigString clang_cxx_path { "clang_cxx_path", R"(C:\Program Files\LLVM\bin\clang++.exe)" };
+ConfigString clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
+
+void add_clang_ninja_args(cppm::CmdArgs& cmd) {
+	cmd.append(" -DCMAKE_C_COMPILER:PATH=\"{}\"", clang_c_path);
+	cmd.append(" -DCMAKE_CXX_COMPILER:PATH=\"{}\"", clang_cxx_path);
+}
 
 void generate_compilation_database() {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
@@ -20,8 +29,16 @@ void generate_compilation_database() {
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
-void generate_ninja() {
+enum Compiler {
+	msvc,
+	clang,
+	gcc
+};
+
+void generate_ninja(Compiler compiler = msvc) {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
+	if (compiler == clang)
+		add_clang_ninja_args(gen_cmd);
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
@@ -49,8 +66,14 @@ void run_ninja(std::string current_ninja_path, bool expect_no_work_to_do) {
 	REQUIRE(found_no_work_to_do == expect_no_work_to_do);
 }
 
-void make_absolute(ConfigString& str) {
-	str.assign(fs::absolute((std::string&)str).string());
+template<typename... ConfStr>
+void make_absolute(ConfStr&... str) {
+	(str.assign(fs::absolute((std::string&)str).string()),...);
+}
+
+void write_ninja_config() {
+	std::ofstream fout("scanner_config.txt");
+	fout << "tool_path " << clang_scan_deps_path;
 }
 
 TEST_CASE("ninja generator test with temp files", "[gen_ninja]") {
@@ -77,13 +100,13 @@ add_executable(test a.cpp b.cpp c.cpp d.cpp main.cpp)
 set_property(TARGET test PROPERTY CXX_STANDARD 20)
 	)");
 
-	make_absolute(scanner_tool_path);
-	make_absolute(ninja_path);
-	make_absolute(ninja_fork_path);
+	make_absolute(scanner_tool_path,ninja_path, ninja_fork_path, 
+		clang_c_path, clang_cxx_path, clang_scan_deps_path);
 
 	auto build_dir = test.create_dir("test_build");
 	fs::current_path(build_dir);
 
+#ifdef _WIN32
 	SECTION("test dyndeps") {
 		generate_compilation_database();
 
@@ -92,10 +115,17 @@ set_property(TARGET test PROPERTY CXX_STANDARD 20)
 		run_ninja(ninja_path, false);
 		run_ninja(ninja_path, true);
 	}
+#endif
 
 	SECTION("test ninja fork") {
-		generate_ninja();
+#ifdef _WIN32
+		auto compiler = GENERATE(msvc, clang);
+#else
+		auto compiler = clang;
+#endif
+		generate_ninja(compiler);
 
+		write_ninja_config();
 		run_ninja(ninja_fork_path, false);
 		run_ninja(ninja_fork_path, true);
 	}

@@ -11,7 +11,7 @@ include(FetchContent)
 FetchContent_Declare(
   ninja
   GIT_REPOSITORY https://github.com/stevencpp/ninja.git
-  GIT_TAG        3d57ff7ee8287a31b24aff8dd8025390c21fabd5
+  GIT_TAG        2352f29056cf26816bc94646bfc3d2d0026ab41b
 )
 
 FetchContent_MakeAvailable(ninja)
@@ -36,6 +36,8 @@ add_library(cppm_scanner
 	file_time.cpp
 	span.hpp
 	trace.h
+	module_cmdgen.cpp
+	module_cmdgen.h
 )
 
 target_link_libraries(cppm_scanner

@@ -160,7 +160,8 @@ struct DepInfoObserver {
 
 struct ModuleVisitor {
 	std::vector<scan_item_idx_t> imports_item_buf;
-	vector_map<scan_item_idx_t, bool> has_export;
+	std::vector<char> modules_buf;
+	vector_map<scan_item_idx_t, std::string_view> exports;
 	vector_map<scan_item_idx_t, tcb::span<scan_item_idx_t>> imports_item;
 	std::vector<scan_item_idx_t> queue;
 	std::vector<bool> is_in_queue;

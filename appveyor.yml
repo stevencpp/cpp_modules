@@ -42,13 +42,18 @@ test_script:
     appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
     -FileName "clang-scan-deps.exe"
     
-    if not exist "clang-cl.exe"
-    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1lHbV2Q6Y7LSRG0OrE-HNEVm8z5J81Npj" 
-    -FileName "clang-cl.exe"
+    if exist clang-cl.exe del clang-cl.exe
     
     copy /Y * "C:\Program Files\LLVM\bin"
     
     cd ..
+    
+    appveyor DownloadFile "https://prereleases.llvm.org/win-snapshots/LLVM-10.0.0-r375090-win64.exe" 
+    -FileName "LLVM.exe"
+    
+    "C:\Program Files\7-Zip\7z.exe" x LLVM.exe -y -ollvm bin\clang.exe bin\clang-cl.exe bin\clang++.exe
+    
+    copy /Y llvm\bin\* "C:\Program Files\LLVM\bin"
     
     if not exist ninja
     git clone https://github.com/ninja-build/ninja.git &&
@@ -61,4 +66,5 @@ test_script:
     
     call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
     
-    .\Debug\cppm_test.exe [scanner],[msbuild],[lmdb],[gen_ninja] --ninja_path=../../../ninja/Release/ninja.exe
+    .\Debug\cppm_test.exe [scanner],[msbuild],[lmdb],[gen_ninja]
+    --ninja_path=../../../ninja/Release/ninja.exe
