@@ -16,12 +16,15 @@ namespace fs = std::filesystem;
 
 ConfigString vcvarsall_bat { "vcvarsall_bat", "", "the path to vcvarsall.bat" };
 ConfigString working_dir { "working_dir", "", "working dir" };
+ConfigString env_file { "env_file", "", "if vcvarsall is set, save the env to this file, otherwise load it from this file"};
 
 bool update_environment() {
 	fmt::print("updating the environment ... ");
 	// set up the paths to ninja and the compiler toolchain
 	bool initialized = false, failed = false;
-	cppm::CmdArgs vars_cmd { "call \"{}\" x64 && set", vcvarsall_bat };
+	cppm::CmdArgs vars_cmd { "cmd /C call \"{}\" x64 && set", vcvarsall_bat };
+	std::ofstream fout;
+	if (!env_file.empty()) fout.open(env_file);
 	auto ret = run_cmd_read_lines(vars_cmd, [&](std::string_view line) {
 		//fmt::print("> {}\n", line);
 		if (!initialized) {
@@ -31,6 +34,8 @@ bool update_environment() {
 			fmt::print("> {}\n", line);
 			failed = true;
 			return false;
+		} else if (fout.is_open()) {
+			fout << line << '\n';
 		}
 		return true;
 	}, [&](std::string_view err_line) {
@@ -43,6 +48,19 @@ bool update_environment() {
 		return false;
 	}
 	fmt::print("ok\n");
+	return true;
+}
+
+bool load_environment() {
+	std::ifstream fin(env_file);
+	if (!fin) return false;
+	std::string line;
+	while (std::getline(fin, line)) {
+		if (0 != putenv((char*)line.c_str())) {
+			fmt::print("failed to set environment variable {}\n", line);
+			return false;
+		}
+	}
 	return true;
 }
 
@@ -87,6 +105,8 @@ int unguarded_main(int argc, char* argv[])
 	if (working_dir != "")
 		fs::current_path(working_dir.str());
 	if (vcvarsall_bat != "" && !update_environment())
+		return 1;
+	if (vcvarsall_bat == "" && env_file != "" && !load_environment())
 		return 1;
 
 	int numFailed = session.run();

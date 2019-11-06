@@ -67,6 +67,7 @@ public:
 		REQUIRE(nullptr != mkdtemp(tmp_dir_name));
 		tmp_path = fs::path { tmp_dir_name };
 #endif
+		tmp_path = std::filesystem::canonical(tmp_path);
 		
 		tmp_path_str = tmp_path.string();
 	}

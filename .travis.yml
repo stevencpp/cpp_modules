@@ -61,4 +61,12 @@ script:
         --clang_c_path=`which clang-9`
         --clang_cxx_path=`which clang++-9`
         --ninja_path=`which ninja`
-        --ninja_fork_path=../../_deps/ninja-build/ninja
+        --ninja_fork_path=../../_deps/ninja-build/ninja &&
+      git clone --depth 1 https://github.com/stevencpp/llvm-project.git &&
+      mkdir -p llvm-build && cd llvm-build &&
+      cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm &&
+        -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;libunwind;compiler-rt;lld"
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE &&
+      ../cppm_test [scanner_comp_db] --scanner_comp_db="compile_commands.json"
+        --scanner_db_path="." --scanner_item_root_path="."
+        --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp"

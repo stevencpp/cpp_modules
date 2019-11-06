@@ -39,10 +39,8 @@ test_script:
     cd downloads
     
     if not exist "clang-scan-deps.exe"
-    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=1xHRCY_eF5uPrW2kNMj1LyXeCCfFFVNia" 
+    appveyor DownloadFile "https://drive.google.com/uc?export=download&id=13Glm5b14fG2cBd7-EduZV0Rf8eIj_Pcb" 
     -FileName "clang-scan-deps.exe"
-    
-    if exist clang-cl.exe del clang-cl.exe
     
     copy /Y * "C:\Program Files\LLVM\bin"
     
@@ -68,3 +66,16 @@ test_script:
     
     .\Debug\cppm_test.exe [scanner],[msbuild],[lmdb],[gen_ninja]
     --ninja_path=../../../ninja/Release/ninja.exe
+    
+    git clone --depth 1 https://github.com/stevencpp/llvm-project.git
+    
+    mkdir -p llvm-build && cd llvm-build
+    
+    cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm
+    -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;libcxx;libcxxabi;libunwind;compiler-rt;lld"
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE
+    
+    ..\Debug\cppm_test.exe [scanner_comp_db] --scanner_comp_db="compile_commands.json"
+    --scanner_db_path="." --scanner_item_root_path="."
+    --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp"
+    

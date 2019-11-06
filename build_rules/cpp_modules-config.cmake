@@ -35,6 +35,7 @@ function(target_cpp_modules targets)
 			#target_compile_options(${target} PRIVATE "/experimental:module") 
 			#so use a property sheet instead to set EnableModules:
 			set_property(TARGET ${target} PROPERTY VS_USER_PROPS ${CPPM_TARGETS_PATH}/cpp_modules.props)
+			set_property(TARGET ${target} PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Files\\LLVM")
 
 			target_link_libraries(${target}
 				${CPPM_TARGETS_PATH}/cpp_modules.targets

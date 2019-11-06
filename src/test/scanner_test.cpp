@@ -4,7 +4,6 @@
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/core.h>
 #include <catch2/catch.hpp>
-#include <array>
 #include "util.h"
 
 #include <filesystem>
@@ -18,6 +17,7 @@ ConfigString clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\
 ConfigString default_command { "scanner_default_command", R"("cl.exe" /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D WIN32 /D _WINDOWS /D _MBCS /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++latest /Gd /TP)" };
 ConfigString single_comp_db { "scanner_comp_db", "" };
 ConfigString single_db_path { "scanner_db_path", "" };
+ConfigString single_file_to_touch { "scanner_file_to_touch", "" };
 ConfigString single_item_root_path { "scanner_item_root_path", "" };
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
@@ -117,34 +117,44 @@ private:
 	}
 };
 
+void scan_single_item_set(cppm::ScanItemSet& item_set) {
+	timer t;
+	cppm::Scanner scanner;
+
+	auto item_set_owned_view = cppm::ScanItemSetOwnedView::from(item_set);
+	auto item_set_view = cppm::ScanItemSetView::from(item_set_owned_view);
+	//DepInfoCollector collector(item_set_view.items);
+
+	cppm::Scanner::ConfigView config;
+	config.tool_type = cppm::Scanner::Type::CLANG_SCAN_DEPS;
+	config.tool_path = clang_scan_deps_path;
+	config.db_path = single_db_path;
+	config.int_dir = config.db_path;
+	config.item_set = item_set_view;
+	config.build_start_time = 0;
+	config.concurrent_targets = false;
+	config.file_tracker_running = false;
+	//config.observer = &collector;
+
+	t.start();
+	scanner.scan(config);
+	t.stop();
+}
+
 TEST_CASE("scanner - from a compilation database", "[scanner_comp_db]") {
 	if (single_comp_db.empty())
 		throw std::invalid_argument("must provide a compilation database path with --scanner_comp_db=\"...\"");
 	if (single_db_path.empty())
 		throw std::invalid_argument("must provide a db path with --scanner_db_path=\"...\"");
 	try {
-		timer t;
-		cppm::Scanner scanner;
-
 		auto item_set = cppm::scan_item_set_from_comp_db(single_comp_db, single_item_root_path);
-		auto item_set_owned_view = cppm::ScanItemSetOwnedView::from(item_set);
-		auto item_set_view = cppm::ScanItemSetView::from(item_set_owned_view);
-		DepInfoCollector collector(item_set_view.items);
-
-		cppm::Scanner::ConfigView config;
-		config.tool_type = cppm::Scanner::Type::CLANG_SCAN_DEPS;
-		config.tool_path = clang_scan_deps_path;
-		config.db_path = single_db_path;
-		config.int_dir = config.db_path;
-		config.item_set = item_set_view;
-		config.build_start_time = 0;
-		config.concurrent_targets = false;
-		config.file_tracker_running = false;
-		config.observer = &collector;
-
-		t.start();
-		scanner.scan(config);
-		t.stop();
+		scan_single_item_set(item_set);
+		scan_single_item_set(item_set);
+		if (single_file_to_touch != "") {
+			fs::last_write_time(single_file_to_touch.str(), fs::file_time_type::clock::now());
+			scan_single_item_set(item_set);
+			scan_single_item_set(item_set);
+		}
 	}
 	catch (std::exception & e) {
 		fmt::print("caught exception: {}\n", e.what());
@@ -181,21 +191,34 @@ public:
 		all_files_created.insert("scanner.mdb"); // todo: pass the names to scanner
 		all_files_created.insert("scanner.mdb-lock");
 		all_files_created.insert("pp_commands.json");
-
 		item_set.item_root_path = tmp_path_str;
-		item_set.targets = { "x" };
-		item_set.commands = { default_command };
-		item_set.commands_contain_item_path = false;
+		item_set.commands_contain_item_path = false; // todo: test when this is true
 	}
 
-	void create_deps(const char* file_def) {
+	void create_deps(std::string_view file_def) {
 		create_files(file_def, [&](const std::string&) {});
 	}
 
-	void create_items(const char* file_def) {
-		create_files(file_def, [&](std::string file) {
-			item_set.items.push_back({ .path = file });
+	void add_item(const std::string& file, cppm::target_idx_t target_idx) {
+		item_set.items.push_back({ 
+			.path = file,
+			.command_idx = item_set.commands.size(),
+			.target_idx = target_idx
 		});
+		std::string cmd = fmt::format("{} /Fo\"{}.{}.obj\"", default_command, file, item_set.targets[target_idx]);
+		item_set.commands.emplace_back(std::move(cmd));
+	}
+
+	void create_items(std::string_view target_name, std::string_view file_def,
+		std::vector<std::string> file_refs = {})
+	{
+		auto target_idx = item_set.targets.size();
+		item_set.targets.push_back((std::string)target_name);
+		create_files(file_def, [&](std::string file) {
+			add_item(file, target_idx);
+		});
+		for (auto& file : file_refs)
+			add_item(file, target_idx);
 	}
 
 	void scan() {
@@ -291,13 +314,13 @@ public:
 			CHECK(nr_results == (std::size_t)item_set.items.size());
 		}
 
-		vector_map<cppm::scan_item_idx_t, char> is_ood;
-		is_ood.resize(item_set.items.size());
+		vector_map<cppm::scan_item_idx_t, char> expect_is_ood;
+		expect_is_ood.resize(item_set.items.size());
 		for (auto idx_wrapper : ood_indices)
-			is_ood[cppm::scan_item_idx_t { idx_wrapper.idx }] = true;
+			expect_is_ood[cppm::scan_item_idx_t { idx_wrapper.idx }] = true;
 
 		for (auto item_idx : all_results.indices()) {
-			if (!is_ood[item_idx] && !submit_previous_results)
+			if (!expect_is_ood[item_idx] && !submit_previous_results)
 				continue;
 			depinfo::DepInfo& res_info = all_results[item_idx];
 			depinfo::DepInfo& exp_info = all_expected[item_idx];
@@ -348,23 +371,24 @@ TEST_CASE("test1", "[scanner]") {
 #include "b.h"
 > b.h
 	)");
-	test.create_items(R"(
+	test.create_items("target1", R"(
 > a.cpp
 #include "a.h"
 > b.cpp
 #include "b.h"
 > c.cpp
 	)");
+	test.create_items("target2", "", { "b.cpp" });
 
 	using vdb = std::vector<depinfo::DataBlock>;
 	depinfo::DepInfo a_cpp_info = { .input = "a.cpp", .depends = vdb{ "a.h", "b.h" } };
 	depinfo::DepInfo b_cpp_info = { .input = "b.cpp", .depends = vdb{ "b.h" } };
 	depinfo::DepInfo c_cpp_info = { .input = "c.cpp" };
-	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info } });
+	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info, b_cpp_info } });
 
-	ood_idx a { 0 }, b { 1 }, c { 2 };
+	ood_idx a { 0 }, b { 1 }, c { 2 }, b1 { 3 };
 
-	test.scan_check({ a, b, c }); // first scan
+	test.scan_check({ a, b, c, b1 }); // first scan
 
 	test.scan_check({}); // everything up to date
 
@@ -378,10 +402,10 @@ TEST_CASE("test1", "[scanner]") {
 		test.scan_check({}); // no changes again
 
 		test.touch("b.h");
-		test.scan_check({ a, b }); // both depend on b.h
+		test.scan_check({ a, b, b1 }); // both depend on b.h
 
 		test.touch("b.cpp");
-		test.scan_check({ b }); // just b.cpp this time
+		test.scan_check({ b, b1 }); // just b.cpp this time
 
 		test.touch("c.cpp");
 		test.scan_check({ c }); // just c.cpp this time
@@ -390,12 +414,12 @@ TEST_CASE("test1", "[scanner]") {
 
 		test.touch("b.h");
 		test.touch("c.cpp");
-		test.scan_check({ a, b, c }); // all three again
+		test.scan_check({ a, b, c, b1 }); // all three again
 
 		test.scan_check({}); // no changes again
 
 		test.clean();
-		test.scan_check({ a, b, c }); // all items were removed from the DB
+		test.scan_check({ a, b, c, b1 }); // all items were removed from the DB
 
 		test.scan_check({}); // no changes again
 
@@ -415,7 +439,7 @@ import a;
 #include "a.h"
 import b;
 	)");
-	test.create_items(R"(
+	test.create_items("target1", R"(
 > a.cpp
 export module a;
 import std.core;

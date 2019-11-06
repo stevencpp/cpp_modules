@@ -166,13 +166,6 @@ std::string get_command_line_argument(std::string_view command_line, int idx)
 	return (std::string)command_line.substr(0, command_line.find(" "));
 }
 
-void CmdArgs::init() {
-#ifdef _WIN32
-	arg_vec.push_back("cmd");
-	arg_vec.push_back("/C");
-#endif
-}
-
 static auto to_argv(const CmdArgs& args) {
 	std::vector<const char*> argv;
 	argv.reserve(args.arg_vec.size());

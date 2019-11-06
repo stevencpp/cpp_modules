@@ -16,6 +16,7 @@
 #include "multi_buffer.h"
 #include "trace.h"
 #include "cmd_line_utils.h"
+#include <charconv>
 
 namespace cppm {
 
@@ -550,6 +551,7 @@ struct ScannerImpl {
 	};
 	auto execute_scanner(std::string_view tool_path, std::string_view comp_db_path,
 		std::string_view item_root_path, span_map<scan_item_idx_t, const ScanItemView> items,
+		span_map<scan_item_idx_t, file_id_t> item_file_ids,
 		const std::vector<scan_item_idx_t>& ood_items, DepInfoObserver* observer,
 		/*inout: */span_map<scan_item_idx_t, tcb::span<file_id_t>> file_deps,
 		/*inout: */span_map<scan_item_idx_t, tcb::span<item_id_t>> item_deps,
@@ -564,52 +566,47 @@ struct ScannerImpl {
 		if (ood_items.empty())
 			return data;
 
-		std::unordered_map<std::string, scan_item_idx_t> item_lookup;
-		for (auto i : items.indices()) {
-			// note: this doesn't work if there are multiple items with the same file path
-			item_lookup[get_rooted_path(item_root_path, items[i].path).string()] = i;
-		}
+		std::unordered_map<std::string_view, file_id_t> file_dep_cache;
+		auto add_file_dep = [&](std::string_view filename) {
+			auto [itr, inserted] = file_dep_cache.try_emplace(filename, file_id_t{});
+			if (inserted)
+				itr->second = db.try_add_file(filename);
+			return itr->second;
+		};
+
 		auto starts_with = [](std::string_view a, std::string_view b) {
 			return (a.substr(0, b.size()) == b);
 		};
-		std::string current_file;
 		scan_item_idx_t current_item_idx = {};
+		bool first = true;
 
 		CmdArgs cmd { "\"{}\" --compilation-database=\"{}\"", tool_path, comp_db_path };
 #if 0
 		auto ret = run_cmd_parse_json(cmd, [&](const nlohmann::json& json) {
-#if 0
-			auto input_file = json_depinfo["input"];
-			auto item_idx = scan_item_idx_t { json_depinfo["_id"].get<std::size_t>() }; // note: otherwise we need to look at the outputs
-
-			file_deps_buf.new_vector(item_idx);
-			for (auto& json_dep_file : json_depinfo["depends"]) {
-				auto dep_file = json_dep_file.get<std::string>();
-				file_deps_buf.add(get_file_table_idx(dep_file));
-			}
-			item_deps_buf.new_vector(item_idx);
-			for (auto& json_module : json_depinfo["future_compile"]["requires"]) {
-				auto src_path = json_module["source_path"].get<std::string>();
-				item_deps_buf.add(get_file_table_idx(src_path));
-			}
-#endif
 		});
 #endif
 
 #if 1
+		auto get_item_idx = [&](std::string_view line) {
+			// parse the comp db entry index from e.g ":::: 2"
+			uint32_t idx = 0;
+			auto [p,ec] = std::from_chars(line.data() + 5, line.data() + line.size(), idx);
+			if (ec != std::errc())
+				throw std::invalid_argument("failed to read item index");
+			return ood_items[idx];
+		};
+	
 		auto ret = run_cmd_read_lines(cmd, [&](std::string_view line) {
 			//fmt::print("{}\n", line);
 
 			// todo: use the stable buffer inside run_cmd_read_lines to avoid this copy
 			// todo: store only a single copy of each file/module name
 			line = data.read_lines.copy(line);
+
 			if (starts_with(line, ":::: ")) {
-				if (observer && current_file != "") observer->item_finished();
-				current_file = line.substr(5);
-				auto itr = item_lookup.find(current_file);
-				if (itr == item_lookup.end())
-					throw std::runtime_error("unknown scan item");
-				current_item_idx = itr->second;
+				if (observer && !first) observer->item_finished();
+				first = false;
+				current_item_idx = get_item_idx(line);
 				data.file_deps_buf.new_vector(current_item_idx);
 				data.item_deps_buf.new_vector(current_item_idx);
 				data.imports_buf.new_vector(current_item_idx);
@@ -624,9 +621,10 @@ struct ScannerImpl {
 				data.imports_buf.add(db.try_add_module(name));
 				if(observer) observer->import_module(name);
 				// todo: import header unit ?
-			} else {
-				if (line != "" && line != current_file) {
-					data.file_deps_buf.add(db.try_add_file(line));
+			} else if (line != "") {
+				auto file_id = add_file_dep(line);
+				if(file_id != item_file_ids[current_item_idx]) {
+					data.file_deps_buf.add(file_id);
 					// todo: header or other deps ? check extension ? :-/
 					if (observer) observer->include_header(line);
 					//if(observer) observer->other_file_dep();
@@ -642,7 +640,7 @@ struct ScannerImpl {
 		if(ret != 0)
 			throw std::runtime_error("failed to execute scanner tool");
 
-		if (observer && current_file != "") observer->item_finished();
+		if (observer && !first) observer->item_finished();
 
 		data.file_deps_buf.to_vectors(file_deps);
 		data.item_deps_buf.to_vectors(item_deps);
@@ -779,7 +777,8 @@ struct ScannerImpl {
 		auto comp_db_path = concat_u8_path(int_dir, "pp_commands.json");
 		generate_compilation_database(commands_contain_item_path, commands,
 			item_root_path, items, ood_items, comp_db_path);
-		auto data = execute_scanner(tool_path, comp_db_path, item_root_path, items, ood_items, observer,
+		auto data = execute_scanner(tool_path, comp_db_path, 
+			item_root_path, items, item_data.file_id, ood_items, observer,
 			/*inout: */item_data.file_deps, item_data.item_deps, item_data.exports, item_data.imports);
 
 		if (module_visitor) init_module_visitor(module_visitor, items, item_data.exports, item_data.imports);
@@ -874,19 +873,34 @@ void Scanner::clean(const ConfigView & c) {
 	impl->clean(c.db_path, ci.item_root_path, ci.targets, ci.items);
 }
 
+inline bool ends_with(std::string_view str, std::string_view with) {
+	if (str.size() < with.size()) return false;
+	return str.substr(str.size() - with.size(), with.size()) == with;
+}
+
 ScanItemSet scan_item_set_from_comp_db(std::string_view comp_db_path, std::string_view item_root_path)
 {
 	TRACE();
 	ScanItemSet item_set;
 	item_set.item_root_path = item_root_path;
-	item_set.targets = { "x" }; // todo: add an argument
+	item_set.targets = { "x0" }; // todo: add an argument
+	std::unordered_map<std::string, int> duplicate_count;
 	std::ifstream fin(comp_db_path);
 	auto json_db = nlohmann::json::parse(fin);
 	for (auto& json_item : json_db) {
+		std::string file = json_item["file"];
+		if (ends_with(file, ".rc"))
+			continue;
+		int& cnt = duplicate_count[file];
+		auto target_idx = target_idx_t { cnt };
+		cnt++;
+		if (item_set.targets.size() == target_idx )
+			item_set.targets.push_back(fmt::format("x{}", cnt));
+
 		item_set.items.push_back({
-			/*.path =*/ json_item["file"],
+			/*.path =*/ file,
 			/*.command_idx =*/ item_set.commands.size(),
-			/*.target_idx =*/ item_set.targets.indices().front()
+			/*.target_idx =*/ target_idx
 		});
 		item_set.commands.push_back(json_item["command"]);
 	}

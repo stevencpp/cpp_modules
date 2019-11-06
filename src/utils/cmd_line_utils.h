@@ -46,17 +46,10 @@ std::string get_command_line_argument(std::string_view command_line, int idx);
 struct CmdArgs {
 	std::vector<std::string> arg_vec;
 
-	CmdArgs() {
-		init();
-	}
-
 	template<typename... Args>
 	CmdArgs(std::string_view format_string, Args&&... args) {
-		init();
 		append(format_string, std::forward<Args>(args)...);
 	}
-
-	void init();
 
 	template<typename... Args>
 	void append(std::string_view format_string, Args&&... args) {

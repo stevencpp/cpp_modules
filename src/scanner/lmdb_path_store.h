@@ -6,7 +6,9 @@
 
 #include <filesystem>
 #include <list>
+#include <variant>
 
+#include <unordered_map>
 //#include <absl/container/flat_hash_map.h>
 
 namespace mdb {
@@ -181,15 +183,18 @@ struct path_store {
 			// assume that relative paths are already canonical
 			p = p_item_root_path;
 			p /= path;
-			p.make_preferred();
-		} else {
-			// this is an expensive call (I/O):
+		}
+		p.make_preferred();
+		auto p_str = p.string(); // todo: remove this allocation
+		if (p_str.find("~") != std::string::npos) {
+			// this is an extremely, insanely, ridiculously expensive call:
 			// todo: hash every prefix of the path in non-canonical form
 			// (allow multiple entries in the hash map to point to the same path id)
 			// so that hopefully next time we can avoid this call 
-			p = fs::canonical(path);
+			p = fs::canonical(p);
+			p_str = p.string();
+			//throw std::invalid_argument(p_str + " must not be shortened");
 		}
-		auto p_str = p.string(); // todo: remove this allocation
 		auto p_view = std::string_view { p_str };
 
 		if (auto itr = path_lookup.find(p_str); itr != path_lookup.end())

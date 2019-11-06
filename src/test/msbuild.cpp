@@ -1,6 +1,7 @@
 #include <catch2/catch.hpp>
 #include <range/v3/view/split.hpp>
 #include <filesystem>
+#include <stdlib.h>
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/core.h>
 #include <fmt/color.h>
@@ -47,8 +48,9 @@ void full_clean_one(const std::string& test) {
 	for (auto file : fs::directory_iterator { build_path })
 		if (file.is_directory() && file.path().extension() == ".dir")
 			fs::remove_all(file);
-	for (auto dir : { "Debug", "intermediate", "x64" })
+	for (auto dir : { "Debug", "intermediate", "x64", "CMakeFiles" })
 		fs::remove_all(build_path / dir);
+	fs::remove(build_path / "CMakeCache.txt");
 }
 
 struct run_one_params {
@@ -87,7 +89,17 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 	REQUIRE(fs::exists(build_path / p.configuration / "A.exe"));
 }
 
+struct path_guard {
+	std::string path_env = getenv("PATH");
+	path_guard() { putenv(fmt::format("PATH={};C:\\Program Files\\LLVM\\bin", path_env).c_str()); }
+	~path_guard() {	putenv(fmt::format("PATH={}", path_env).c_str()); }
+};
+
 TEST_CASE("msbuild system test", "[msbuild]") {
+	// todo: ideally CMake should be able to generate its CompilerIdCXX.vcxproj
+	// with the LLVMInstallDir set so that we don't need to change the path here
+	path_guard pguard;
+	
 	auto guard = make_chdir_guard();
 	for (std::string& test : get_run_set()) {
 		full_clean_one(test);
