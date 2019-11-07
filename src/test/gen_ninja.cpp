@@ -14,20 +14,8 @@ namespace fs = std::filesystem;
 ConfigString ninja_path { "ninja_path", "ninja", "path to the ninja executable" };
 ConfigString ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/ninja.exe", "path to the ninja executable" };
 ConfigString scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
-ConfigString clang_c_path { "clang_c_path", R"(C:\Program Files\LLVM\bin\clang.exe)" };
 ConfigString clang_cxx_path { "clang_cxx_path", R"(C:\Program Files\LLVM\bin\clang++.exe)" };
 ConfigString clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
-
-void add_clang_ninja_args(cppm::CmdArgs& cmd) {
-	cmd.append(" -DCMAKE_C_COMPILER:PATH=\"{}\"", clang_c_path);
-	cmd.append(" -DCMAKE_CXX_COMPILER:PATH=\"{}\"", clang_cxx_path);
-}
-
-void generate_compilation_database() {
-	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
-		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
-	REQUIRE(0 == run_cmd(gen_cmd));
-}
 
 enum Compiler {
 	msvc,
@@ -35,10 +23,28 @@ enum Compiler {
 	gcc
 };
 
+void add_compiler_ninja_args(cppm::CmdArgs& cmd, std::string_view cxx) {
+	cmd.append(" -DCMAKE_CXX_COMPILER:PATH=\"{}\"", cxx);
+}
+
+void add_compiler_ninja_args(cppm::CmdArgs& cmd, Compiler compiler) {
+	if (compiler == clang)
+		add_compiler_ninja_args(cmd, clang_cxx_path);
+	else if (compiler == msvc)
+		add_compiler_ninja_args(cmd, "cl.exe");
+}
+
+void generate_compilation_database(Compiler compiler = msvc) {
+	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
+		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
+	add_compiler_ninja_args(gen_cmd, compiler);
+	REQUIRE(0 == run_cmd(gen_cmd));
+}
+
+
 void generate_ninja(Compiler compiler = msvc) {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
-	if (compiler == clang)
-		add_clang_ninja_args(gen_cmd);
+	add_compiler_ninja_args(gen_cmd, compiler);
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
@@ -95,13 +101,14 @@ import a;
 int main() {}
 > CMakeLists.txt
 cmake_minimum_required(VERSION 3.15)
-project(test)
+project(test LANGUAGES CXX)
 add_executable(test a.cpp b.cpp c.cpp d.cpp main.cpp)
 set_property(TARGET test PROPERTY CXX_STANDARD 20)
 	)");
 
-	make_absolute(scanner_tool_path,ninja_path, ninja_fork_path, 
-		clang_c_path, clang_cxx_path, clang_scan_deps_path);
+	ninja_path = ninja_fork_path;
+	make_absolute(scanner_tool_path, ninja_path, ninja_fork_path, 
+		clang_cxx_path, clang_scan_deps_path);
 
 	auto build_dir = test.create_dir("test_build");
 	fs::current_path(build_dir);

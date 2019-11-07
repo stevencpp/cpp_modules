@@ -1,0 +1,122 @@
+name: C/C++ CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v1
+    
+    - name: pre-cache
+      id: pre-cache
+      shell: bash
+      run: |
+        git ls-remote https://github.com/stevencpp/llvm-project.git master > csd.lock
+        
+        msvc_base="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC"
+        msvc_dir=$msvc_base/`dir "$msvc_base"`
+        echo "::set-output name=vsmodules-dir::$msvc_dir/ifc/x64"
+        echo "$msvc_dir" > vsmodules.lock
+  
+    - name: clang-scan-deps cache
+      uses: actions/cache@v1
+      id: cache-csd
+      with:
+        path: csd
+        key: ${{ runner.os }}-csd-${{ hashFiles('**\csd.lock') }}
+    
+    - name: clang-scan-deps build
+      if: steps.cache-csd.outputs.cache-hit != 'true'
+      shell: cmd
+      run:
+        choco install llvm && refreshenv &&
+        clang --version && clang++ --version &&
+        git clone --depth 1 https://github.com/stevencpp/llvm-project.git &&
+        mkdir llvm-build && cd llvm-build &&
+        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 &&
+        set CXX=clang-cl && set CC=clang-cl &&
+        cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS='clang' -DCMAKE_BUILD_TYPE=Release 
+          -DLLVM_ENABLE_MODULES=ON ../llvm-project/llvm &&
+        ninja clang-scan-deps.exe && cd .. &&
+        mkdir csd && copy llvm-build\bin\clang-scan-deps.exe csd
+        
+    - name: clang-scan-deps upload
+      if: steps.cache-csd.outputs.cache-hit != 'true'
+      uses: actions/upload-artifact@master
+      with:
+        name: clang-scan-deps.exe
+        path: csd\clang-scan-deps.exe
+    
+    - name: vcpkg cache
+      uses: actions/cache@v1
+      id: cache-vcpkg
+      with:
+        path: vcpkg
+        key: ${{ runner.os }}-vcpkg
+      
+    - name: vcpkg bootstrap
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
+      shell: cmd
+      run: 
+        git clone https://github.com/microsoft/vcpkg.git &&
+        cd vcpkg && bootstrap-vcpkg.bat && cd ..
+        
+    - name: vcpkg install
+      shell: cmd
+      run:
+        cd vcpkg && git pull &&
+        vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows
+          catch2:x86-windows range-v3:x86-windows clara:x86-windows reproc:x86-windows &&
+        vcpkg upgrade --no-dry-run &&
+        if exist downloads rmdir /S /Q downloads &&
+        if exist buildtrees rmdir /S /Q buildtrees &&
+        if exist packages rmdir /S /Q packages &&
+        cd ..
+        
+    - name: visual studio modules cache
+      uses: actions/cache@v1
+      id: cache-vsmodules
+      with:
+        path: ${{ steps.pre-cache.outputs.vsmodules-dir }}
+        key: ${{ runner.os }}-vsmodules-${{ hashFiles('**\vsmodules.lock') }}
+        
+    - name: install visual studio modules
+      if: steps.cache-vsmodules.outputs.cache-hit != 'true'
+      shell: cmd
+      run:
+        taskkill /IM "MSBuild.exe" /F
+         
+        "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart
+        --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise"
+        --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
+        
+        if not exist "${{ steps.pre-cache.outputs.vsmodules-dir }}" echo failed && exit 1
+        
+    - name: install llvm
+      shell: bash
+      run: |
+        curl -fsSL -o LLVM.exe "https://prereleases.llvm.org/win-snapshots/LLVM-10.0.0-r375090-win64.exe"
+        7z x LLVM.exe -y -o"C:/Program Files/LLVM" bin/clang-cl.exe bin/clang++.exe bin/llvm-lib.exe bin/lld-link.exe
+        cp csd/clang-scan-deps.exe "C:/Program Files/LLVM/bin"
+        echo "::add-path::C:/Program Files/LLVM/bin"
+        
+    - name: build
+      shell: cmd
+      run:
+        mkdir build && cd build &&
+        cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -G "Visual Studio 16 2019" -A "Win32"
+          -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules"
+          .. &&
+        cmake --build . --config "Debug" --parallel &&
+        cmake --install . --config "Debug"
+    
+    - name: test
+      shell: cmd
+      run:
+        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 &&
+        cd build\src\test &&
+        Debug\cppm_test.exe [lmdb],[scanner],[msbuild],[gen_ninja]
