@@ -98,9 +98,11 @@ struct path_guard {
 TEST_CASE("msbuild system test", "[msbuild]") {
 	// todo: ideally CMake should be able to generate its CompilerIdCXX.vcxproj
 	// with the LLVMInstallDir set so that we don't need to change the path here
+	
 	path_guard pguard;
 	
 	auto guard = make_chdir_guard();
+	
 	for (std::string& test : get_run_set()) {
 		full_clean_one(test);
 		run_one(test);

@@ -15,10 +15,13 @@ struct timer
 		ts = std::chrono::high_resolution_clock::now();
 	}
 
-	auto stop() {
+	auto stop(std::string_view what = "") {
 		auto te = std::chrono::high_resolution_clock::now();
 		auto nr_ms = std::chrono::duration_cast<std::chrono::milliseconds>(te - ts).count();
-		std::cout << "elapsed: " << nr_ms << "ms\n";
+		if (what.empty())
+			std::cout << "elapsed: " << nr_ms << "ms\n";
+		else
+			std::cout << what << " took: " << nr_ms << "ms\n";
 		return nr_ms;
 	}
 };

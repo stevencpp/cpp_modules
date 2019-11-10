@@ -175,6 +175,7 @@ private:
 	std::size_t nr_results = 0;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_expected;
 	std::vector<std::vector<std::size_t>> expected_module_imports;
+	int scan_counter = 1;
 public:
 	bool submit_previous_results = false;
 
@@ -244,11 +245,13 @@ public:
 			config.module_visitor = module_visitor_result.get();
 
 		cppm::Scanner scanner;
+
+		auto what = fmt::format("scan {}", scan_counter++);
 		
 		timer t;
 		t.start();
 		scanner.scan(config);
-		t.stop();
+		t.stop(what);
 
 		all_results = std::move(collector.all_infos);
 		nr_results = collector.nr_results;

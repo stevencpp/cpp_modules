@@ -20,35 +20,62 @@ jobs:
         msvc_dir=$msvc_base/`dir "$msvc_base"`
         echo "::set-output name=vsmodules-dir::$msvc_dir/ifc/x64"
         echo "$msvc_dir" > vsmodules.lock
+        
+        .github/workflows/vs_env.bat x64
+        echo "::add-path::C:\\Program Files\\LLVM\\bin"
   
     - name: clang-scan-deps cache
       uses: actions/cache@v1
       id: cache-csd
       with:
         path: csd
-        key: ${{ runner.os }}-csd-${{ hashFiles('**\csd.lock') }}
+        key: ${{ runner.os }}-csd-2-${{ hashFiles('**\csd.lock') }}
     
     - name: clang-scan-deps build
       if: steps.cache-csd.outputs.cache-hit != 'true'
-      shell: cmd
-      run:
-        choco install llvm && refreshenv &&
-        clang --version && clang++ --version &&
-        git clone --depth 1 https://github.com/stevencpp/llvm-project.git &&
-        mkdir llvm-build && cd llvm-build &&
-        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 &&
-        set CXX=clang-cl && set CC=clang-cl &&
-        cmake -G "Ninja" -DLLVM_ENABLE_PROJECTS='clang' -DCMAKE_BUILD_TYPE=Release 
-          -DLLVM_ENABLE_MODULES=ON ../llvm-project/llvm &&
-        ninja clang-scan-deps.exe && cd .. &&
-        mkdir csd && copy llvm-build\bin\clang-scan-deps.exe csd
+      shell: bash
+      run: |
+        source vsenv.sh
+        
+        curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
+        7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
+        export PATH="/c/Program Files/LLVM/bin:$PATH"
+        clang-cl --version
+        export CXX=clang-cl && export CC=clang-cl
+        set
+        
+        git clone --depth 1 https://github.com/stevencpp/llvm-project.git
+        
+        mkdir csd
+        mkdir llvm-build
+        cd llvm-build
+        
+        cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm \
+          -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;libcxx;libcxxabi;libunwind;compiler-rt;lld' \
+          -DLLVM_ENABLE_MODULES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
+          -DCMAKE_LINKER=lld-link
+        ninja clang-scan-deps.exe
+        cp bin/clang-scan-deps.exe ../csd
+
+        ninja `ninja -t targets all | grep cmake_object_order_depends_target | sed 's/: phony//' | tr '\n' ' '`
+        mkdir scan
+        find . \( -name '*.h' -o -name '*.inc' -o -name '*.def' -o -name '*.cpp' \) -exec cp --parents {} scan \;
+        cp compile_commands.json scan
+        7z a ../csd/scan.zip scan/*
         
     - name: clang-scan-deps upload
       if: steps.cache-csd.outputs.cache-hit != 'true'
       uses: actions/upload-artifact@master
       with:
         name: clang-scan-deps.exe
-        path: csd\clang-scan-deps.exe
+        path: csd/clang-scan-deps.exe
+    
+    - name: scan.zip upload
+      if: steps.cache-csd.outputs.cache-hit != 'true'
+      uses: actions/upload-artifact@master
+      with:
+        name: scan.zip
+        path: csd/scan.zip
     
     - name: vcpkg cache
       uses: actions/cache@v1
@@ -101,22 +128,38 @@ jobs:
         curl -fsSL -o LLVM.exe "https://prereleases.llvm.org/win-snapshots/LLVM-10.0.0-r375090-win64.exe"
         7z x LLVM.exe -y -o"C:/Program Files/LLVM" bin/clang-cl.exe bin/clang++.exe bin/llvm-lib.exe bin/lld-link.exe
         cp csd/clang-scan-deps.exe "C:/Program Files/LLVM/bin"
-        echo "::add-path::C:/Program Files/LLVM/bin"
         
     - name: build
-      shell: cmd
-      run:
-        mkdir build && cd build &&
-        cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
-          -G "Visual Studio 16 2019" -A "Win32"
-          -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules"
-          .. &&
-        cmake --build . --config "Debug" --parallel &&
+      shell: bash
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -G "Visual Studio 16 2019" -A "Win32" \
+          -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules" \
+          ..
+        cmake --build . --config "Debug" --parallel
         cmake --install . --config "Debug"
     
     - name: test
-      shell: cmd
-      run:
-        call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 &&
-        cd build\src\test &&
-        Debug\cppm_test.exe [lmdb],[scanner],[msbuild],[gen_ninja]
+      shell: bash
+      run: |
+        source vsenv.sh
+        
+        if [ ! -d llvm-build ]; then
+          git clone --depth 1 https://github.com/stevencpp/llvm-project.git;
+          7z x csd/scan.zip
+          mkdir llvm-build
+          mv scan/* llvm-build
+          curl -fsSL -o headers.zip "https://drive.google.com/uc?export=download&id=1tbrnwu4gvz9IWsyxwZ_yKExRD9AMmqMb"
+          7z x headers.zip -y -ollvm-build
+        fi
+        
+        cd llvm-build
+        ../build/src/test/Debug/cppm_test.exe [scanner_comp_db] --scanner_comp_db="compile_commands.json" \
+          --scanner_db_path="." --scanner_item_root_path="." \
+          --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp"
+        cd ..
+        
+        cd build/src/test
+        ./Debug/cppm_test.exe [lmdb],[scanner],[msbuild],[gen_ninja]

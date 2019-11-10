@@ -43,7 +43,7 @@ struct DB {
 		TRACE();
 		using namespace mdb::flags;
 		constexpr int MB = 1024 * 1024;
-		env.set_map_size(10 * MB);
+		env.set_map_size(16 * MB);
 		env.set_maxdbs(5);
 		env.open(concat_u8_path(db_path, db_file_name).c_str(), env::nosubdir);
 	}
@@ -886,10 +886,14 @@ ScanItemSet scan_item_set_from_comp_db(std::string_view comp_db_path, std::strin
 	item_set.targets = { "x0" }; // todo: add an argument
 	std::unordered_map<std::string, int> duplicate_count;
 	std::ifstream fin(comp_db_path);
+	if (!fin)
+		throw std::invalid_argument(fmt::format("{} does not exist", comp_db_path));
 	auto json_db = nlohmann::json::parse(fin);
 	for (auto& json_item : json_db) {
 		std::string file = json_item["file"];
 		if (ends_with(file, ".rc"))
+			continue;
+		if (ends_with(file, "gcc_personality_v0.c")) // todo: temporary hack for llvm
 			continue;
 		int& cnt = duplicate_count[file];
 		auto target_idx = target_idx_t { cnt };
