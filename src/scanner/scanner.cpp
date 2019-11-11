@@ -638,7 +638,7 @@ struct ScannerImpl {
 #endif
 
 		if(ret != 0)
-			throw std::runtime_error("failed to execute scanner tool");
+			throw std::runtime_error(fmt::format("failed to execute scanner tool - command '{}' returned {}", cmd.to_string(), ret));
 
 		if (observer && !first) observer->item_finished();
 
@@ -652,7 +652,8 @@ struct ScannerImpl {
 	bool init_module_visitor(ModuleVisitor* module_visitor,
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		span_map<scan_item_idx_t, const module_id_t> exports,
-		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports)
+		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
+		module_id_t max_module_id)
 	{
 		if (exports.empty())
 			return true;
@@ -660,7 +661,6 @@ struct ScannerImpl {
 		vector_map<module_id_t, scan_item_idx_t> exported_by;
 		reordered_multi_vector_buffer<scan_item_idx_t, scan_item_idx_t> imports_item_buf;
 
-		module_id_t max_module_id = *std::max_element(exports.begin(), exports.end());
 		exported_by.resize(max_module_id + 1);
 		for (auto& idx : exported_by)
 			idx.invalidate();
@@ -781,7 +781,9 @@ struct ScannerImpl {
 			item_root_path, items, item_data.file_id, ood_items, observer,
 			/*inout: */item_data.file_deps, item_data.item_deps, item_data.exports, item_data.imports);
 
-		if (module_visitor) init_module_visitor(module_visitor, items, item_data.exports, item_data.imports);
+		if (module_visitor) 
+			init_module_visitor(module_visitor, items, 
+				item_data.exports, item_data.imports, db.module_store.next_id - 1);
 
 		// note: the deps/modules in item_data become invalid once we start writing to the db
 		// note: the hash maps for path/module_store become invalid as well and they're used while scanning
@@ -878,23 +880,41 @@ inline bool ends_with(std::string_view str, std::string_view with) {
 	return str.substr(str.size() - with.size(), with.size()) == with;
 }
 
+inline bool starts_with(std::string_view str, std::string_view with) {
+	if (str.size() < with.size()) return false;
+	return str.substr(0, with.size()) == with;
+}
+
+inline void replace_if_starts_with(std::string& str, std::string_view start, std::string_view replace_with) {
+	if (starts_with(str, start))
+		str.replace(str.begin(), str.begin() + start.size(), replace_with);
+}
+
 ScanItemSet scan_item_set_from_comp_db(std::string_view comp_db_path, std::string_view item_root_path)
 {
 	TRACE();
 	ScanItemSet item_set;
 	item_set.item_root_path = item_root_path;
 	item_set.targets = { "x0" }; // todo: add an argument
-	std::unordered_map<std::string, int> duplicate_count;
+
 	std::ifstream fin(comp_db_path);
 	if (!fin)
 		throw std::invalid_argument(fmt::format("{} does not exist", comp_db_path));
 	auto json_db = nlohmann::json::parse(fin);
+
+	std::unordered_map<std::string, int> duplicate_count;
 	for (auto& json_item : json_db) {
 		std::string file = json_item["file"];
 		if (ends_with(file, ".rc"))
 			continue;
+		if (ends_with(file, ".S")) // todo: temporary hack for llvm
+			continue;
 		if (ends_with(file, "gcc_personality_v0.c")) // todo: temporary hack for llvm
 			continue;
+
+		std::string command = json_item["command"];
+		replace_if_starts_with(command, "/usr/bin/clang++-9", "/usr/lib/llvm-9/bin/clang++");
+
 		int& cnt = duplicate_count[file];
 		auto target_idx = target_idx_t { cnt };
 		cnt++;
@@ -902,11 +922,11 @@ ScanItemSet scan_item_set_from_comp_db(std::string_view comp_db_path, std::strin
 			item_set.targets.push_back(fmt::format("x{}", cnt));
 
 		item_set.items.push_back({
-			/*.path =*/ file,
+			/*.path =*/ std::move(file),
 			/*.command_idx =*/ item_set.commands.size(),
 			/*.target_idx =*/ target_idx
 		});
-		item_set.commands.push_back(json_item["command"]);
+		item_set.commands.emplace_back(std::move(command));
 	}
 	item_set.commands_contain_item_path = true;
 	return item_set;

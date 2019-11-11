@@ -7,4 +7,4 @@ for /f "usebackq delims=*" %%i in (`%VSWHERE% -latest -property installationPath
   call "%%i\VC\Auxiliary\Build\vcvarsall.bat" %*
 )
 
-bash -c "export -p > vsenv.sh"
+bash -c "export -p > env.sh"

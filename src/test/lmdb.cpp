@@ -10,7 +10,7 @@
 
 namespace lmdb_test {
 
-ConfigString scanner_output_file { "scanner_output_file", "" };
+ConfigPath scanner_output_file { "scanner_output_file", "" };
 
 using namespace Catch::Matchers;
 

@@ -11,7 +11,7 @@ include(FetchContent)
 FetchContent_Declare(
   ninja
   GIT_REPOSITORY https://github.com/stevencpp/ninja.git
-  GIT_TAG        4ae6a9ac46862670a88c0507db4e00bfdd735b19
+  GIT_TAG        3c0e177b2607f971e663ecbad0efab5d5ed39a40
 )
 
 FetchContent_MakeAvailable(ninja)

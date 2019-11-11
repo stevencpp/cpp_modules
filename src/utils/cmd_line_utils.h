@@ -72,6 +72,17 @@ struct CmdArgs {
 		if (!cur.empty())
 			arg_vec.push_back(cur);
 	}
+
+	std::string to_string() {
+		std::string cmd;
+		bool first = true;
+		for (auto& arg : arg_vec) {
+			if (!first) cmd += " ";
+			else first = false;
+			cmd += arg;
+		}
+		return cmd;
+	}
 };
 
 int64_t run_cmd(const CmdArgs& args);

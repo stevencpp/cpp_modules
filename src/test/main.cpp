@@ -14,9 +14,15 @@
 
 namespace fs = std::filesystem;
 
-ConfigString vcvarsall_bat { "vcvarsall_bat", "", "the path to vcvarsall.bat" };
-ConfigString working_dir { "working_dir", "", "working dir" };
-ConfigString env_file { "env_file", "", "if vcvarsall is set, save the env to this file, otherwise load it from this file"};
+ConfigPath vcvarsall_bat { "vcvarsall_bat", "", "the path to vcvarsall.bat" };
+ConfigPath working_dir { "working_dir", "", "working dir" };
+ConfigPath env_file { "env_file", "", "if vcvarsall is set, save the env to this file, otherwise load it from this file"};
+
+void ConfigPath::init() {
+	if(!empty())
+		assign(fs::absolute(str()).string());
+	ConfigString::init();
+}
 
 bool update_environment() {
 	fmt::print("updating the environment ... ");
@@ -89,8 +95,7 @@ int unguarded_main(int argc, char* argv[])
 		return returnCode;
 
 	for (auto& [key, conf_string] : config->strings)
-		for (auto& alt_string : conf_string->alts)
-			alt_string->assign(conf_string->str());
+		conf_string->init();
 
 	if (session.configData().testsOrTags.empty()) {
 		session.configData().testsOrTags = {

@@ -172,6 +172,8 @@ MDB_val to_val_from_aggregate(const std::tuple<Ts...> &tup, std::index_sequence<
 				memcpy(&buf[ofs], &size, sizeof(stored_size_type));
 				ofs += sizeof(stored_size_type);
 			}
+			if (size == 0) // accessing elem.data() is UB if size == 0
+				return;
 			memcpy(&buf[ofs], elem.data(), size);
 			ofs += size;
 		} else {

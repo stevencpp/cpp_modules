@@ -35,4 +35,13 @@ struct ConfigString : public std::string, ConfigVar {
 	std::string& str() {
 		return *static_cast<std::string*>(this);
 	}
+	virtual void init() {
+		for (auto& alt_string : alts)
+			alt_string->assign(str());
+	}
+};
+
+struct ConfigPath : public ConfigString {
+	using ConfigString::ConfigString;
+	void init() override;
 };

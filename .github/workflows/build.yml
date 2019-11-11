@@ -4,28 +4,72 @@ on: [push]
 
 jobs:
   build:
-
-    runs-on: windows-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     
+    strategy:
+      matrix:
+        name: [
+          windows,
+          linux,
+        ]
+        
+        include:
+          - name: windows
+            os: windows-latest
+            exe-suffix: .exe
+          - name: linux
+            os: ubuntu-18.04
+            exe-suffix:
+
     steps:
     - uses: actions/checkout@v1
     
-    - name: pre-cache
-      id: pre-cache
+    - name: init
+      id: init
       shell: bash
       run: |
         git ls-remote https://github.com/stevencpp/llvm-project.git master > csd.lock
+        echo "::set-output name=vcpkg-dir::$VCPKG_INSTALLATION_ROOT"
         
-        msvc_base="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC"
-        msvc_dir=$msvc_base/`dir "$msvc_base"`
-        echo "::set-output name=vsmodules-dir::$msvc_dir/ifc/x64"
-        echo "$msvc_dir" > vsmodules.lock
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          msvc_base="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC"
+          msvc_dir=$msvc_base/`dir "$msvc_base"`
+          echo "::set-output name=vsmodules-dir::$msvc_dir/ifc/x64"
+          echo "$msvc_dir" > vsmodules.lock
         
-        .github/workflows/vs_env.bat x64
-        echo "::add-path::C:\\Program Files\\LLVM\\bin"
+          .github/workflows/vs_env.bat x64
+          echo "::add-path::C:\\Program Files\\LLVM\\bin"
+        else
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key 2>/dev/null | sudo apt-key add -
+          sudo add-apt-repository 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main' -y
+          sudo apt-get update -q
+          sudo apt-get install -y clang-9 lld-9 libc++-9-dev libc++abi-9-dev clang-tools-9
+          export CXX=clang++-9; export CC=clang-9;
+          export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
+          export CSD_CXXFLAGS="-stdlib=libc++"
+          export CXXFLAGS="-stdlib=libc++"
+          $CXX --version
+        
+          export CMAKE_VERSION=3.15.5
+          export CMAKE_ID=cmake-$CMAKE_VERSION-Linux-x86_64
+          curl -fsSL -o cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/$CMAKE_ID.tar.gz"
+          tar -zxf cmake.tar.gz
+          export PATH=$PWD/$CMAKE_ID/bin:$PATH
+          whereis cmake
+          cmake --version
+          
+          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-linux.zip
+          sudo 7z x ninja.zip -o/usr/local/bin
+          ninja --version
+          
+          #sudo apt-get install -y ccache
+          
+          export -p > env.sh
+        fi
   
     - name: clang-scan-deps cache
-      uses: actions/cache@v1
+      uses: actions/cache@releases/v1
       id: cache-csd
       with:
         path: csd
@@ -35,14 +79,18 @@ jobs:
       if: steps.cache-csd.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        source vsenv.sh
+        source env.sh
+        export CXXFLAGS="$CSD_CXXFLAGS"
         
-        curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
-        7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
-        export PATH="/c/Program Files/LLVM/bin:$PATH"
-        clang-cl --version
-        export CXX=clang-cl && export CC=clang-cl
-        set
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
+          7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
+          export PATH="/c/Program Files/LLVM/bin:$PATH"
+          clang-cl --version
+          export CXX=clang-cl && export CC=clang-cl
+          export CMAKE_LINKER=-DCMAKE_LINKER=lld-link
+          set
+        fi
         
         git clone --depth 1 https://github.com/stevencpp/llvm-project.git
         
@@ -52,77 +100,80 @@ jobs:
         
         cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm \
           -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;libcxx;libcxxabi;libunwind;compiler-rt;lld' \
-          -DLLVM_ENABLE_MODULES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
-          -DCMAKE_LINKER=lld-link
-        ninja clang-scan-deps.exe
-        cp bin/clang-scan-deps.exe ../csd
+          -DLLVM_ENABLE_MODULES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE $CMAKE_LINKER
+        ninja clang-scan-deps${{ matrix.exe-suffix }}
+        cp bin/clang-scan-deps* ../csd
 
         ninja `ninja -t targets all | grep cmake_object_order_depends_target | sed 's/: phony//' | tr '\n' ' '`
+        cd ..
         mkdir scan
-        find . \( -name '*.h' -o -name '*.inc' -o -name '*.def' -o -name '*.cpp' \) -exec cp --parents {} scan \;
-        cp compile_commands.json scan
-        7z a ../csd/scan.zip scan/*
+        find llvm-build -regextype posix-extended \
+          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
+          -exec cp --parents {} scan \;
+        cp --parents llvm-build/compile_commands.json scan
+        find llvm-project -regextype posix-extended \
+          -not -regex '.*/(test|INPUTS|docs).*' -and \
+          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
+          -exec cp --parents {} scan \;
+        cp --parents llvm-project/lld/unittests/MachOTests/empty_obj_x86_armv7.txt scan
+        mv scan csd
         
     - name: clang-scan-deps upload
       if: steps.cache-csd.outputs.cache-hit != 'true'
       uses: actions/upload-artifact@master
       with:
-        name: clang-scan-deps.exe
-        path: csd/clang-scan-deps.exe
+        name: clang-scan-deps-${{ matrix.name }}
+        path: csd/clang-scan-deps${{ matrix.exe-suffix }}
     
-    - name: scan.zip upload
+    - name: llvm-scanner-input upload
       if: steps.cache-csd.outputs.cache-hit != 'true'
       uses: actions/upload-artifact@master
       with:
-        name: scan.zip
-        path: csd/scan.zip
+        name: llvm-scanner-input-${{ matrix.name }}
+        path: csd/scan
     
     - name: vcpkg cache
-      uses: actions/cache@v1
+      uses: actions/cache@releases/v1
       id: cache-vcpkg
       with:
-        path: vcpkg
+        path: ${{ steps.init.outputs.vcpkg-dir }}/installed
         key: ${{ runner.os }}-vcpkg
-      
-    - name: vcpkg bootstrap
-      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
-      shell: cmd
-      run: 
-        git clone https://github.com/microsoft/vcpkg.git &&
-        cd vcpkg && bootstrap-vcpkg.bat && cd ..
         
     - name: vcpkg install
-      shell: cmd
-      run:
-        cd vcpkg && git pull &&
-        vcpkg install fmt:x86-windows lmdb:x86-windows nlohmann-json:x86-windows
-          catch2:x86-windows range-v3:x86-windows clara:x86-windows reproc:x86-windows &&
-        vcpkg upgrade --no-dry-run &&
-        if exist downloads rmdir /S /Q downloads &&
-        if exist buildtrees rmdir /S /Q buildtrees &&
-        if exist packages rmdir /S /Q packages &&
-        cd ..
+      shell: bash
+      run: |
+        source env.sh
+        cd $VCPKG_INSTALLATION_ROOT
+        git reset --hard origin/master
+        git pull
+        if [ "$RUNNER_OS" = "Windows"]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
+        vcpkg install $VCPKG_TRIPLET fmt lmdb nlohmann-json catch2 range-v3 clara reproc
+        vcpkg upgrade --no-dry-run
         
     - name: visual studio modules cache
-      uses: actions/cache@v1
+      if: runner.os == 'Windows'
+      uses: actions/cache@releases/v1
       id: cache-vsmodules
       with:
-        path: ${{ steps.pre-cache.outputs.vsmodules-dir }}
+        path: ${{ steps.init.outputs.vsmodules-dir }}
         key: ${{ runner.os }}-vsmodules-${{ hashFiles('**\vsmodules.lock') }}
         
     - name: install visual studio modules
-      if: steps.cache-vsmodules.outputs.cache-hit != 'true'
-      shell: cmd
-      run:
+      if: runner.os == 'Windows' && steps.cache-vsmodules.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
         taskkill /IM "MSBuild.exe" /F
          
-        "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart
-        --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise"
-        --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
+        "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart \
+          --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise" \
+          --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
         
-        if not exist "${{ steps.pre-cache.outputs.vsmodules-dir }}" echo failed && exit 1
+        if [ ! -d "${{ steps.init.outputs.vsmodules-dir }}" ]; then
+          echo failed; exit 1;
+        fi
         
     - name: install llvm
+      if: runner.os == 'Windows'
       shell: bash
       run: |
         curl -fsSL -o LLVM.exe "https://prereleases.llvm.org/win-snapshots/LLVM-10.0.0-r375090-win64.exe"
@@ -132,34 +183,54 @@ jobs:
     - name: build
       shell: bash
       run: |
+        source env.sh
         mkdir build
         cd build
-        cmake -DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake" \
-          -G "Visual Studio 16 2019" -A "Win32" \
-          -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules" \
-          ..
-        cmake --build . --config "Debug" --parallel
-        cmake --install . --config "Debug"
+        export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        if [ "$RUNNER_OS" = "Windows" ]; then 
+          cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" \
+            -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules" ..
+          cmake --build . --config "Debug" --parallel
+          cmake --install . --config "Debug"
+        else
+          cmake $VCPKG_ARG -G "Ninja" -DCMAKE_BUILD_TYPE=Debug ..
+          #  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build . --parallel
+        fi
     
     - name: test
       shell: bash
       run: |
-        source vsenv.sh
+        source env.sh
         
-        if [ ! -d llvm-build ]; then
-          git clone --depth 1 https://github.com/stevencpp/llvm-project.git;
-          7z x csd/scan.zip
-          mkdir llvm-build
-          mv scan/* llvm-build
-          curl -fsSL -o headers.zip "https://drive.google.com/uc?export=download&id=1tbrnwu4gvz9IWsyxwZ_yKExRD9AMmqMb"
-          7z x headers.zip -y -ollvm-build
+        TEST_DRIVER=cppm_test
+        TESTS=[lmdb],[scanner],[gen_ninja]
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          TEST_DRIVER=Debug/cppm_test.exe
+          TESTS=$TESTS,[msbuild]
+          TEST_ARGS="--msbuild-test-path=tests \
+            --scanner_tool_path=build/src/scanner/Debug/cppm_scanner_tool.exe \
+            --ninja_fork_path=build/_deps/ninja-build/Debug/ninja.exe"
+        else
+          TEST_ARGS="--clang_cxx_path=`which clang++-9` \
+            --ninja_fork_path=build/_deps/ninja-build/ninja"
         fi
         
-        cd llvm-build
-        ../build/src/test/Debug/cppm_test.exe [scanner_comp_db] --scanner_comp_db="compile_commands.json" \
-          --scanner_db_path="." --scanner_item_root_path="." \
-          --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp"
-        cd ..
+        build/src/test/$TEST_DRIVER $TESTS $TEST_ARGS \
+          --clang_scan_deps_path="$GITHUB_WORKSPACE/csd/clang-scan-deps${{ matrix.exe-suffix }}"
         
-        cd build/src/test
-        ./Debug/cppm_test.exe [lmdb],[scanner],[msbuild],[gen_ninja]
+        if [ "$RUNNER_OS" = "Windows" ]; then exit 0; fi
+        
+        if [ ! -d llvm-build ]; then
+          mv csd/scan/* .
+          mkdir -p llvm-build/bin
+          mv csd/clang-scan-deps* llvm-build/bin
+        fi
+        cd llvm-build
+        mkdir -p tools/clang/tools/extra/clangd/fuzzer #workaround for an include bug
+        mkdir -p tools/clang/tools/extra/clangd/tool #same
+        ../build/src/test/$TEST_DRIVER [scanner_comp_db] \
+          --scanner_comp_db="compile_commands.json" \
+          --scanner_db_path="." --scanner_item_root_path="." \
+          --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp" \
+          --clang_scan_deps_path="$GITHUB_WORKSPACE/llvm-build/bin/clang-scan-deps${{ matrix.exe-suffix }}"

@@ -13,12 +13,12 @@
 
 namespace scanner_test {
 
-ConfigString clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
+ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
 ConfigString default_command { "scanner_default_command", R"("cl.exe" /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D WIN32 /D _WINDOWS /D _MBCS /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++latest /Gd /TP)" };
-ConfigString single_comp_db { "scanner_comp_db", "" };
-ConfigString single_db_path { "scanner_db_path", "" };
-ConfigString single_file_to_touch { "scanner_file_to_touch", "" };
-ConfigString single_item_root_path { "scanner_item_root_path", "" };
+ConfigPath single_comp_db { "scanner_comp_db", "" };
+ConfigPath single_db_path { "scanner_db_path", "" };
+ConfigPath single_file_to_touch { "scanner_file_to_touch", "" };
+ConfigPath single_item_root_path { "scanner_item_root_path", "" };
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
@@ -327,6 +327,7 @@ public:
 				continue;
 			depinfo::DepInfo& res_info = all_results[item_idx];
 			depinfo::DepInfo& exp_info = all_expected[item_idx];
+			INFO("checking " << std::get<std::string>(exp_info.input) << " (" << (uint32_t)item_idx << ")");
 
 			init_optionals(res_info);
 

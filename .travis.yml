@@ -58,9 +58,7 @@ script:
       cd src/test &&
       ./cppm_test [lmdb],[scanner],[gen_ninja]
         --clang_scan_deps_path=../../../clang-scan-deps
-        --clang_c_path=`which clang-9`
         --clang_cxx_path=`which clang++-9`
-        --ninja_path=`which ninja`
         --ninja_fork_path=../../_deps/ninja-build/ninja &&
       git clone --depth 1 https://github.com/stevencpp/llvm-project.git &&
       mkdir -p llvm-build && cd llvm-build &&

@@ -16,7 +16,7 @@ namespace msbuild {
 
 ConfigString cfg_run_one { "msbuild-run-one", "" };
 ConfigString cfg_run_set { "msbuild-run-set", "dag,concurrent" };
-ConfigString cfg_test_path { "msbuild-test-path", "../../../tests" };
+ConfigPath cfg_test_path { "msbuild-test-path", "../../../tests" };
 ConfigString cfg_generator { "msbuild-generator", "Visual Studio 16 2019" };
 ConfigString cfg_arch { "msbuild-arch", "X64" };
 ConfigString cfg_verbosity { "msbuild-verbosity", "m", "m for mininmal, d for diagnostic" };
@@ -91,8 +91,8 @@ void run_one(const std::string& test, const run_one_params& p = {}) {
 
 struct path_guard {
 	std::string path_env = getenv("PATH");
-	path_guard() { putenv(fmt::format("PATH={};C:\\Program Files\\LLVM\\bin", path_env).c_str()); }
-	~path_guard() {	putenv(fmt::format("PATH={}", path_env).c_str()); }
+	path_guard() { putenv((char*)fmt::format("PATH={};C:\\Program Files\\LLVM\\bin", path_env).c_str()); }
+	~path_guard() {	putenv((char*)fmt::format("PATH={}", path_env).c_str()); }
 };
 
 TEST_CASE("msbuild system test", "[msbuild]") {
