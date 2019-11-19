@@ -6,6 +6,9 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_GIT_HASH: 29def6aa636a9985d068aa4624172720c0005e09
+      VCPKG_DEPS: fmt lmdb nlohmann-json catch2 range-v3 clara reproc
     
     strategy:
       matrix:
@@ -30,16 +33,19 @@ jobs:
       shell: bash
       run: |
         git ls-remote https://github.com/stevencpp/llvm-project.git master > csd.lock
-        echo "::set-output name=vcpkg-dir::$VCPKG_INSTALLATION_ROOT"
         
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          msvc_base="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/MSVC"
-          msvc_dir=$msvc_base/`dir "$msvc_base"`
-          echo "::set-output name=vsmodules-dir::$msvc_dir/ifc/x64"
-          echo "$msvc_dir" > vsmodules.lock
+        echo "${{ runner.os }}" > env.lock
         
+        if [ "$RUNNER_OS" = "Windows" ]; then          
+          export PATH="/c/Program Files/LLVM/bin:$PATH"
           .github/workflows/vs_env.bat x64
-          echo "::add-path::C:\\Program Files\\LLVM\\bin"
+          source env.sh
+          cl >> env.lock 2>&1
+          
+          cl >> vsmodules.lock 2>&1
+          ifc_dir="$(dirname "`which cl`")/../../../ifc/x64"
+          ifc_dir="$(echo "$ifc_dir" | sed -e 's/^\///' -e 's/\//\\/g' -e 's/^./\0:/')"
+          echo "::set-output name=vsmodules-dir::$ifc_dir"
         else
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key 2>/dev/null | sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main' -y
@@ -49,15 +55,15 @@ jobs:
           export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
           export CSD_CXXFLAGS="-stdlib=libc++"
           export CXXFLAGS="-stdlib=libc++"
-          $CXX --version
-        
+          $CXX --version >> env.lock 2>&1
+          echo "$CXXFLAGS $CFLAGS $LDFLAGS" >> env.lock
+          
           export CMAKE_VERSION=3.15.5
           export CMAKE_ID=cmake-$CMAKE_VERSION-Linux-x86_64
           curl -fsSL -o cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/$CMAKE_ID.tar.gz"
           tar -zxf cmake.tar.gz
           export PATH=$PWD/$CMAKE_ID/bin:$PATH
           whereis cmake
-          cmake --version
           
           curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-linux.zip
           sudo 7z x ninja.zip -o/usr/local/bin
@@ -67,6 +73,12 @@ jobs:
           
           export -p > env.sh
         fi
+        
+        cmake --version >> env.lock 2>&1
+        echo "=== env.lock ==="
+        cat env.lock
+        
+        echo "$VCPKG_HASH $VCPKG_DEPS" >> vcpkg.lock
   
     - name: clang-scan-deps cache
       uses: actions/cache@releases/v1
@@ -136,19 +148,26 @@ jobs:
       uses: actions/cache@releases/v1
       id: cache-vcpkg
       with:
-        path: ${{ steps.init.outputs.vcpkg-dir }}/installed
-        key: ${{ runner.os }}-vcpkg
+        path: vcpkg
+        key: vcpkg-${{ hashFiles('**\env.lock') }}-${{ hashFiles('**\vcpkg.lock') }}
+        restore-keys: vcpkg-${{ hashFiles('**\env.lock') }}-
         
     - name: vcpkg install
+      if: steps.cache-vcpkg.outputs.cache-hit != 'true'
       shell: bash
       run: |
         source env.sh
-        cd $VCPKG_INSTALLATION_ROOT
-        git reset --hard origin/master
-        git pull
+        if cd vcpkg; then
+          git fetch
+        else
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+        fi
+        git reset --hard $VCPKG_GIT_HASH
         if [ "$RUNNER_OS" = "Windows"]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
-        vcpkg install $VCPKG_TRIPLET fmt lmdb nlohmann-json catch2 range-v3 clara reproc
-        vcpkg upgrade --no-dry-run
+        "$VCPKG_INSTALLATION_ROOT/vcpkg" install $VCPKG_TRIPLET $VCPKG_DEPS
+        "$VCPKG_INSTALLATION_ROOT/vcpkg" upgrade --no-dry-run
+        rm -rf downloads buildtrees packages
         
     - name: visual studio modules cache
       if: runner.os == 'Windows'
@@ -162,8 +181,8 @@ jobs:
       if: runner.os == 'Windows' && steps.cache-vsmodules.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        taskkill /IM "MSBuild.exe" /F
-         
+        echo "dummy"
+        
         "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart \
           --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise" \
           --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
@@ -186,7 +205,7 @@ jobs:
         source env.sh
         mkdir build
         cd build
-        export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
         if [ "$RUNNER_OS" = "Windows" ]; then 
           cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" \
             -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules" ..
