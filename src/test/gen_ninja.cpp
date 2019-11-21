@@ -6,6 +6,7 @@
 #include "test_config.h"
 #include "temp_file_test.h"
 #include "cmd_line_utils.h"
+#include "system_test.h"
 
 namespace gen_ninja {
 
@@ -15,41 +16,41 @@ ConfigPath ninja_path { "ninja_path", "", "path to the ninja executable" };
 ConfigPath ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/ninja.exe", "path to the ninja executable" };
 ConfigPath scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
 ConfigPath clang_cxx_path { "clang_cxx_path", R"(C:\Program Files\LLVM\bin\clang++.exe)" };
+ConfigPath clang_cl_path { "clang_cl_path", R"(C:\Program Files\LLVM\bin\clang-cl.exe)" };
 ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
 
-enum Compiler {
-	msvc,
-	clang,
-	gcc
-};
+ConfigString cfg_run_set { "ninja-run-set", "dag,concurrent" };
+
+using system_test::Compiler;
 
 void add_compiler_ninja_args(cppm::CmdArgs& cmd, std::string_view cxx) {
-	cmd.append(" -DCMAKE_CXX_COMPILER:PATH=\"{}\"", cxx);
+	cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", cxx);
 }
 
 void add_compiler_ninja_args(cppm::CmdArgs& cmd, Compiler compiler) {
-	if (compiler == clang)
+	if (compiler == Compiler::clang)
 		add_compiler_ninja_args(cmd, clang_cxx_path);
-	else if (compiler == msvc)
+	else if (compiler == Compiler::clang_cl)
+		add_compiler_ninja_args(cmd, clang_cl_path);
+	else if (compiler == Compiler::msvc)
 		add_compiler_ninja_args(cmd, "cl.exe");
 }
 
-void generate_compilation_database(Compiler compiler = msvc) {
+void generate_compilation_database(Compiler compiler = Compiler::msvc) {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
-		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
+		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja .. ", ninja_path };
 	add_compiler_ninja_args(gen_cmd, compiler);
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
-
-void generate_ninja(Compiler compiler = msvc) {
-	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja ..", ninja_path };
+void generate_ninja(Compiler compiler = Compiler::msvc) {
+	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja .. ", ninja_path };
 	add_compiler_ninja_args(gen_cmd, compiler);
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
 void generate_ninja_from_compilation_database() {
-	cppm::CmdArgs tool_gen_cmd { "{} gen_dynamic", scanner_tool_path };
+	cppm::CmdArgs tool_gen_cmd { "{} gen_dynamic --tool_path=\"{}\"", scanner_tool_path, clang_scan_deps_path };
 	REQUIRE(0 == run_cmd(tool_gen_cmd));
 }
 
@@ -74,7 +75,8 @@ void run_ninja(std::string current_ninja_path, bool expect_no_work_to_do) {
 
 void write_ninja_config() {
 	std::ofstream fout("scanner_config.txt");
-	fout << "tool_path " << clang_scan_deps_path;
+	if(!clang_scan_deps_path.empty())
+		fout << "tool_path " << clang_scan_deps_path;
 }
 
 TEST_CASE("ninja generator test with temp files", "[gen_ninja]") {
@@ -118,16 +120,22 @@ set_property(TARGET test PROPERTY CXX_STANDARD 20)
 #endif
 
 	SECTION("test ninja fork") {
-#ifdef _WIN32
-		auto compiler = GENERATE(msvc, clang);
-#else
-		auto compiler = clang;
-#endif
+		auto compiler = GENERATE(ALL_COMPILERS);
 		generate_ninja(compiler);
 
 		write_ninja_config();
 		run_ninja(ninja_fork_path, false);
 		run_ninja(ninja_fork_path, true);
+	}
+}
+
+using namespace system_test;
+
+TEST_CASE("ninja generator system test", "[gen_ninja]") {
+	auto compiler = GENERATE(ALL_COMPILERS);
+	for (std::string& test : get_run_set("", cfg_run_set)) {
+		full_clean_one(test);
+		run_one(test, { .generator = "Ninja", .compiler = compiler });
 	}
 }
 

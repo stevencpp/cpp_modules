@@ -5,10 +5,12 @@ import std.core;
 import D4;
 import A4;
 
+#include "funcsig.h"
+
 export namespace A3 {
 	void foo() {
 		D4::foo();
 		A4::foo();
-		printf("%s\n", __FUNCSIG__);
+		printf("%s\n", FUNCSIG);
 	}
 }

@@ -25,7 +25,7 @@ target_link_libraries(B8 C)
 
 add_library(C STATIC C.cpp)
 
-if(CMAKE_GENERATOR_TOOLSET STREQUAL "ClangCl")
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 	target_sources(C PRIVATE std_core.cpp)
 endif()
 

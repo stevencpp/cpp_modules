@@ -6,10 +6,12 @@ import C4;
 
 #include <C5.h>
 
+#include "funcsig.h"
+
 export namespace C3 {
 	void foo() {
 		C4::foo();
 		C5::foo();
-		printf("%s\n", __FUNCSIG__);
+		printf("%s\n", FUNCSIG);
 	}
 }

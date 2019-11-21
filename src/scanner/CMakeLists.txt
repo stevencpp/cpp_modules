@@ -101,8 +101,9 @@ set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
 
 # copy all the DLLs
 install(TARGETS cppm_scanner_cs DESTINATION etc)
+endif(MSVC)
+
 install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION etc)
 install(FILES "$<TARGET_FILE:lmdb>" DESTINATION etc)
 install(FILES "$<TARGET_FILE:reproc>" DESTINATION etc)
-
-endif(MSVC)
+install(TARGETS ninja DESTINATION etc)

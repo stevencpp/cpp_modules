@@ -46,13 +46,15 @@ std::string get_command_line_argument(std::string_view command_line, int idx);
 struct CmdArgs {
 	std::vector<std::string> arg_vec;
 
+	CmdArgs() {}
+
 	template<typename... Args>
 	CmdArgs(std::string_view format_string, Args&&... args) {
 		append(format_string, std::forward<Args>(args)...);
 	}
 
 	template<typename... Args>
-	void append(std::string_view format_string, Args&&... args) {
+	CmdArgs& append(std::string_view format_string, Args&&... args) {
 		std::string str = fmt::format(format_string, std::forward<Args>(args)...);
 		std::string cur;
 		for (size_t i = 0; i < str.size(); i++) {
@@ -71,6 +73,7 @@ struct CmdArgs {
 		}
 		if (!cur.empty())
 			arg_vec.push_back(cur);
+		return *this;
 	}
 
 	std::string to_string() {

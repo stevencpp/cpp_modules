@@ -6,9 +6,13 @@ set_property(TARGET cpp_modules PROPERTY CXX_STANDARD 17)
 
 target_link_libraries(cpp_modules)
 
-install(TARGETS cpp_modules
-	RUNTIME DESTINATION bin
-)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  if(WIN32)
+    set(CMAKE_INSTALL_PREFIX "C:/Program Files/cpp_modules" CACHE PATH "..." FORCE)
+  else()
+    set(CMAKE_INSTALL_PREFIX "/usr/local/cpp_modules" CACHE PATH "..." FORCE)
+  endif()
+endif()
 
 if(WIN32)
 	install(FILES 
@@ -20,12 +24,9 @@ if(WIN32)
 		../build_rules/dummy.cpp
 		DESTINATION etc
 	)
-	
-	install(FILES
-		../build_rules/cpp_modules-config.cmake
-		DESTINATION cmake
-	)
 endif()
+
+install(FILES ../build_rules/cpp_modules-config.cmake DESTINATION cmake)
 
 add_subdirectory(utils)
 add_subdirectory(scanner)

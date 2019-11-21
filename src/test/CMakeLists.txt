@@ -24,6 +24,8 @@ add_executable(cppm_test
 	util.h
 	test_config.h
 	temp_file_test.h
+	system_test.h
+	system_test.cpp
 )
 
 set_property(TARGET cppm_test PROPERTY CXX_STANDARD 20)

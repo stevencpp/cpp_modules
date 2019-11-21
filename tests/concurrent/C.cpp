@@ -2,8 +2,10 @@ export module C;
 
 import std.core;
 
+#include "funcsig.h"
+
 export namespace C {
 	void foo() {
-		printf("%s\n", __FUNCSIG__);
+		printf("%s\n", FUNCSIG);
 	}
 }

@@ -78,6 +78,8 @@ void ModuleCommandGenerator::references_to_string(std::string& str)
 
 ModuleCommandGenerator::Format ModuleCommandGenerator::detect_format(std::string_view cmd) {
 	// todo:
+	if (cmd.find("clang-cl.exe") != std::string_view::npos)
+		return { ClangCl };
 	if (cmd.find("/Fo") != std::string_view::npos)
 		return { MSVC };
 	return { Clang };

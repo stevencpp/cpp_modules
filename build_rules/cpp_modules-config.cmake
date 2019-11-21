@@ -18,9 +18,20 @@ macro(required_find_program var name)
 	required_find_common(${var} ${name})
 endmacro()
 
+if(NOT DEFINED CPPM_SCANNER_PATH)
+	required_find_program(CPPM_SCANNER_PATH clang-scan-deps
+		HINTS "C:/Program Files/LLVM/bin" "/usr/local/cpp_modules/bin"
+		DOC "path to the patched clang-scan-deps executable")
+endif()
+message(STATUS "using the scanner at '${CPPM_SCANNER_PATH}'")
+
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
 	required_find_path(CPPM_TARGETS_PATH cpp_modules.targets
 		HINTS "${CMAKE_CURRENT_LIST_DIR}/../etc" DOC "path containing cpp_modules.targets and its dependencies")
+endif()
+if(CMAKE_GENERATOR MATCHES "Ninja")
+	set(CMAKE_MAKE_PROGRAM "${CMAKE_CURRENT_LIST_DIR}/../etc/ninja" CACHE FILEPATH "" FORCE)
+	file(WRITE "${CMAKE_BINARY_DIR}/scanner_config.txt" "tool_path ${CPPM_SCANNER_PATH}")
 endif()
 
 function(target_cpp_modules targets)
@@ -34,8 +45,9 @@ function(target_cpp_modules targets)
 			#the following doesn't set EnableModules and so /module:stdifcdir is also not set:
 			#target_compile_options(${target} PRIVATE "/experimental:module") 
 			#so use a property sheet instead to set EnableModules:
-			set_property(TARGET ${target} PROPERTY VS_USER_PROPS ${CPPM_TARGETS_PATH}/cpp_modules.props)
+			set_property(TARGET ${target} PROPERTY VS_USER_PROPS "${CPPM_TARGETS_PATH}/cpp_modules.props")
 			set_property(TARGET ${target} PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Files\\LLVM")
+			set_property(TARGET ${target} PROPERTY VS_GLOBAL_CppM_ClangScanDepsPath "${CPPM_SCANNER_PATH}")
 
 			target_link_libraries(${target}
 				${CPPM_TARGETS_PATH}/cpp_modules.targets

@@ -4,6 +4,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <istream>
 
 struct ConfigString;
 
@@ -35,9 +36,17 @@ struct ConfigString : public std::string, ConfigVar {
 	std::string& str() {
 		return *static_cast<std::string*>(this);
 	}
+	std::string_view sv() {
+		return str();
+	}
 	virtual void init() {
 		for (auto& alt_string : alts)
 			alt_string->assign(str());
+	}
+	friend std::istream& operator >>(std::istream& out, ConfigString& t) {
+		// read the whole argument even if it contains spaces
+		std::getline(out, t);
+		return out;
 	}
 };
 

@@ -41,7 +41,7 @@ add_library(D STATIC
 	D4.cpp
 )
 
-if(NOT MSVC OR CMAKE_GENERATOR_TOOLSET STREQUAL "ClangCl")
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 	target_sources(D PRIVATE std_core.cpp)
 endif()
 

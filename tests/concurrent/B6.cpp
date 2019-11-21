@@ -6,9 +6,11 @@ import std.core;
 
 import C;
 
+#include "funcsig.h"
+
 export namespace B6 {
 	void foo() {
 		C::foo();
-		printf("%s\n", __FUNCSIG__);
+		printf("%s\n", FUNCSIG);
 	}
 }

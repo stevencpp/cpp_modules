@@ -7,11 +7,13 @@ import B2;
 //import <D6.h>; // clang pp - doesn't work yet
 #include <D6.h>
 
+#include "funcsig.h"
+
 export namespace B3 {
 	void foo() {
 		B2::foo();
 		D5::foo();
 		D6::foo();
-		printf("%s\n", __FUNCSIG__);
+		printf("%s\n", FUNCSIG);
 	}
 }

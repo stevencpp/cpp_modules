@@ -11,6 +11,7 @@ jobs:
       VCPKG_DEPS: fmt lmdb nlohmann-json catch2 range-v3 clara reproc
     
     strategy:
+      fail-fast: false
       matrix:
         name: [
           windows,
@@ -36,8 +37,12 @@ jobs:
         
         echo "${{ runner.os }}" > env.lock
         
-        if [ "$RUNNER_OS" = "Windows" ]; then          
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
+          7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
           export PATH="/c/Program Files/LLVM/bin:$PATH"
+          clang-cl --version
+          
           .github/workflows/vs_env.bat x64
           source env.sh
           cl >> env.lock 2>&1
@@ -52,9 +57,10 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y clang-9 lld-9 libc++-9-dev libc++abi-9-dev clang-tools-9
           export CXX=clang++-9; export CC=clang-9;
-          export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
-          export CSD_CXXFLAGS="-stdlib=libc++"
+          #export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined";
           export CXXFLAGS="-stdlib=libc++"
+          export CSD_CXXFLAGS="-stdlib=libc++"
+          export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
           $CXX --version >> env.lock 2>&1
           echo "$CXXFLAGS $CFLAGS $LDFLAGS" >> env.lock
           
@@ -81,7 +87,7 @@ jobs:
         echo "$VCPKG_HASH $VCPKG_DEPS" >> vcpkg.lock
   
     - name: clang-scan-deps cache
-      uses: actions/cache@releases/v1
+      uses: actions/cache@v1
       id: cache-csd
       with:
         path: csd
@@ -95,10 +101,6 @@ jobs:
         export CXXFLAGS="$CSD_CXXFLAGS"
         
         if [ "$RUNNER_OS" = "Windows" ]; then
-          curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
-          7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
-          export PATH="/c/Program Files/LLVM/bin:$PATH"
-          clang-cl --version
           export CXX=clang-cl && export CC=clang-cl
           export CMAKE_LINKER=-DCMAKE_LINKER=lld-link
           set
@@ -145,7 +147,7 @@ jobs:
         path: csd/scan
     
     - name: vcpkg cache
-      uses: actions/cache@releases/v1
+      uses: actions/cache@v1
       id: cache-vcpkg
       with:
         path: vcpkg
@@ -171,7 +173,7 @@ jobs:
         
     - name: visual studio modules cache
       if: runner.os == 'Windows'
-      uses: actions/cache@releases/v1
+      uses: actions/cache@v1
       id: cache-vsmodules
       with:
         path: ${{ steps.init.outputs.vsmodules-dir }}
@@ -191,14 +193,6 @@ jobs:
           echo failed; exit 1;
         fi
         
-    - name: install llvm
-      if: runner.os == 'Windows'
-      shell: bash
-      run: |
-        curl -fsSL -o LLVM.exe "https://prereleases.llvm.org/win-snapshots/LLVM-10.0.0-r375090-win64.exe"
-        7z x LLVM.exe -y -o"C:/Program Files/LLVM" bin/clang-cl.exe bin/clang++.exe bin/llvm-lib.exe bin/lld-link.exe
-        cp csd/clang-scan-deps.exe "C:/Program Files/LLVM/bin"
-        
     - name: build
       shell: bash
       run: |
@@ -207,14 +201,15 @@ jobs:
         cd build
         export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
         if [ "$RUNNER_OS" = "Windows" ]; then 
-          cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" \
-            -DCMAKE_INSTALL_PREFIX="C:/Program Files/cpp_modules" ..
+          cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" ..
           cmake --build . --config "Debug" --parallel
           cmake --install . --config "Debug"
         else
           cmake $VCPKG_ARG -G "Ninja" -DCMAKE_BUILD_TYPE=Debug ..
           #  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build . --parallel
+          cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
+          sudo $cmake_path --install .
         fi
     
     - name: test
@@ -222,34 +217,38 @@ jobs:
       run: |
         source env.sh
         
-        TEST_DRIVER=cppm_test
-        TESTS=[lmdb],[scanner],[gen_ninja]
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          TEST_DRIVER=Debug/cppm_test.exe
-          TESTS=$TESTS,[msbuild]
-          TEST_ARGS="--msbuild-test-path=tests \
-            --scanner_tool_path=build/src/scanner/Debug/cppm_scanner_tool.exe \
-            --ninja_fork_path=build/_deps/ninja-build/Debug/ninja.exe"
-        else
-          TEST_ARGS="--clang_cxx_path=`which clang++-9` \
-            --ninja_fork_path=build/_deps/ninja-build/ninja"
-        fi
-        
-        build/src/test/$TEST_DRIVER $TESTS $TEST_ARGS \
-          --clang_scan_deps_path="$GITHUB_WORKSPACE/csd/clang-scan-deps${{ matrix.exe-suffix }}"
-        
-        if [ "$RUNNER_OS" = "Windows" ]; then exit 0; fi
-        
         if [ ! -d llvm-build ]; then
-          mv csd/scan/* .
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            mv csd/scan/* .
+          fi
           mkdir -p llvm-build/bin
           mv csd/clang-scan-deps* llvm-build/bin
         fi
+        
+        TESTS="[lmdb],[scanner],[gen_ninja]"
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          TESTS="$TESTS,[msbuild]"
+          CONFIG_DIR="Debug"
+          CLANG_PATH="`which clang++.exe`"
+        else
+          CONFIG_DIR=
+          CLANG_PATH="`which clang++-9`"
+        fi
+        
+        build/src/test/$CONFIG_DIR/cppm_test $TESTS \
+          --scanner_tool_path=build/src/scanner/$CONFIG_DIR/cppm_scanner_tool${{ matrix.exe-suffix }} \
+          --ninja_fork_path=build/_deps/ninja-build/$CONFIG_DIR/ninja${{ matrix.exe-suffix }} \
+          --clang_scan_deps_path=llvm-build/bin/clang-scan-deps${{ matrix.exe-suffix }} \
+          --system_test_path=tests \
+          --clang_cxx_path="$CLANG_PATH"
+        
+        if [ "$RUNNER_OS" = "Windows" ]; then exit 0; fi
+        
         cd llvm-build
         mkdir -p tools/clang/tools/extra/clangd/fuzzer #workaround for an include bug
         mkdir -p tools/clang/tools/extra/clangd/tool #same
         ../build/src/test/$TEST_DRIVER [scanner_comp_db] \
-          --scanner_comp_db="compile_commands.json" \
+          --scanner_comp_db=compile_commands.json \
           --scanner_db_path="." --scanner_item_root_path="." \
-          --scanner_file_to_touch="../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp" \
-          --clang_scan_deps_path="$GITHUB_WORKSPACE/llvm-build/bin/clang-scan-deps${{ matrix.exe-suffix }}"
+          --scanner_file_to_touch=../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp \
+          --clang_scan_deps_path=bin/clang-scan-deps${{ matrix.exe-suffix }}
