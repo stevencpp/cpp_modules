@@ -33,22 +33,30 @@ jobs:
       id: init
       shell: bash
       run: |
+        # only rebuild clang-scan-deps if new commits are pushed to the llvm fork
         git ls-remote https://github.com/stevencpp/llvm-project.git master > csd.lock
         
+        # rebuild the deps when the build environment changes
+        # if env.lock changes then the cache will be invalidated
         echo "${{ runner.os }}" > env.lock
         
+        # bash always prepends its own paths when starting steps
+        # so we save the build environment to env.sh and restore it later
+        # clang-scan-deps and the tests need llvm and ninja to build
         if [ "$RUNNER_OS" = "Windows" ]; then
           curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
           7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
           export PATH="/c/Program Files/LLVM/bin:$PATH"
           clang-cl --version
           
+          # run vcvarsall (for ninja to work) and save the environment to env.sh:
           .github/workflows/vs_env.bat x64
           source env.sh
           cl >> env.lock 2>&1
           
           cl >> vsmodules.lock 2>&1
           ifc_dir="$(dirname "`which cl`")/../../../ifc/x64"
+          # when saving the cache, the path needs to be in windows format (bug?) 
           ifc_dir="$(echo "$ifc_dir" | sed -e 's/^\///' -e 's/\//\\/g' -e 's/^./\0:/')"
           echo "::set-output name=vsmodules-dir::$ifc_dir"
         else
@@ -61,7 +69,10 @@ jobs:
           export CXXFLAGS="-stdlib=libc++"
           export CSD_CXXFLAGS="-stdlib=libc++"
           export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
-          $CXX --version >> env.lock 2>&1
+          # apt fetches a new version of the compiler every few days
+          # e.g clang version 9.0.1-+20191121055306+d1f4d6a4934-1~exp1~20191121045841.88
+          # don't rebuild unless it's a new release
+          $CXX --version | sed 's/-.*//' >> env.lock 2>&1
           echo "$CXXFLAGS $CFLAGS $LDFLAGS" >> env.lock
           
           export CMAKE_VERSION=3.15.5
@@ -151,6 +162,9 @@ jobs:
       id: cache-vcpkg
       with:
         path: vcpkg
+        # if the vcpkg hash or the set of dependencies change,
+        # restore the most recently saved cache for the environment
+        # if the build environment changes then start from scratch
         key: vcpkg-${{ hashFiles('**\env.lock') }}-${{ hashFiles('**\vcpkg.lock') }}
         restore-keys: vcpkg-${{ hashFiles('**\env.lock') }}-
         
@@ -183,8 +197,9 @@ jobs:
       if: runner.os == 'Windows' && steps.cache-vsmodules.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        echo "dummy"
+        echo "dummy" # workaround for a bug in parsing the yaml file
         
+        # install the pre-built standard library modules and cache them, the tests use this
         "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart \
           --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise" \
           --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
@@ -200,7 +215,8 @@ jobs:
         mkdir build
         cd build
         export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
-        if [ "$RUNNER_OS" = "Windows" ]; then 
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          # the dll that is loaded by the msbuild task needs to be Win32
           cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" ..
           cmake --build . --config "Debug" --parallel
           cmake --install . --config "Debug"
