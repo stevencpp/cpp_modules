@@ -29,7 +29,8 @@ void full_clean_one(const std::string& test)
 			fs::remove_all(file);
 	for (auto dir : { "Debug", "intermediate", "x64", "CMakeFiles" })
 		fs::remove_all(build_path / dir);
-	for (auto file : { "CMakeCache.txt", "build.ninja", ".ninja_log", ".ninja_deps" })
+	for (auto file : { "CMakeCache.txt", "build.ninja", ".ninja_log", ".ninja_deps",
+		"scanner.mdb", "scanner.mdb-lock" })
 		fs::remove(build_path / file);
 }
 
@@ -54,22 +55,32 @@ void run_one_msbuild(const std::string& test, const run_one_params& p, const fs:
 	REQUIRE(fs::exists(build_path / p.configuration / "A.exe"));
 }
 
+std::string_view get_compiler_path(Compiler compiler) {
+	if (compiler == msvc)
+		return "cl.exe";
+	else if (compiler == clang_cl)
+		return clang_cl_path;
+	else if (compiler == clang)
+		return clang_cxx_path;
+	throw std::runtime_error("unsupported compiler");
+}
+
 void run_one_ninja(const std::string& test, const run_one_params& p, const fs::path& build_path) {
 	cppm::CmdArgs generate_cmd { "cmake -G Ninja -DCMAKE_BUILD_TYPE={} ../ ", p.configuration };
+	//generate_cmd.append("-DCMAKE_VERBOSE_MAKEFILE=ON ");
 	if(!clang_scan_deps_path.empty())
 		generate_cmd.append("-DCPPM_SCANNER_PATH=\"{}\" ", clang_scan_deps_path);
-	if (p.compiler == msvc)
-		generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=cl.exe");
-	else if (p.compiler == clang_cl)
-		generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", clang_cl_path);
-	else if(p.compiler == clang)
-		generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", clang_cxx_path);
+	generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", get_compiler_path(p.compiler));
 	REQUIRE(0 == run_cmd(generate_cmd));
 
 	cppm::CmdArgs run_ninja_cmd { "cmake --build . --parallel " };
 	REQUIRE(0 == run_cmd(run_ninja_cmd));
 
+#ifdef _WIN32
 	REQUIRE(fs::exists(build_path / "A.exe"));
+#else
+	REQUIRE(fs::exists(build_path / "A"));
+#endif
 }
 
 void run_one(const std::string& test, const run_one_params& p) {
@@ -104,6 +115,14 @@ std::vector<std::string> get_run_set(std::string_view run_one, std::string_view 
 			ret.emplace_back(to_sv(test));
 	}
 	return ret;
+}
+
+Compiler get_compiler_from_str(std::string_view compiler) {
+	if (compiler == "msvc") return Compiler::msvc;
+	else if (compiler == "clang_cl") return Compiler::clang_cl;
+	else if (compiler == "clang") return Compiler::clang;
+	else if (compiler == "gcc") return Compiler::gcc;
+	throw std::invalid_argument(fmt::format("unsupported compiler: {}", compiler));
 }
 
 } // namespace system_test

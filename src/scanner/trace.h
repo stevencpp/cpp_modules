@@ -19,6 +19,7 @@ struct trace_func_guard {
 	}
 };
 #define TRACE(...) trace_func_guard __trace { __FUNCTION__ };
+#define TRACE_BLOCK(name)  trace_func_guard __trace { name };
 #endif
 
 #if 0
@@ -33,8 +34,13 @@ struct trace_func_guard {
 	}
 };
 #define TRACE(...) trace_func_guard __trace { __FUNCTION__ };
+#define TRACE_BLOCK(name)  trace_func_guard __trace { name };
 #endif
 
 #ifndef TRACE
 #define TRACE(...)
+#endif
+
+#ifndef TRACE_BLOCK
+#define TRACE_BLOCK(...)
 #endif

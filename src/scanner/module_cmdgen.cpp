@@ -28,9 +28,10 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 {
 	cmd_buf.clear();
 
+	bool is_header_unit = item_set.items[idx].is_header_unit;
 	bool has_export = (!module_visitor.exports[idx].empty());
 	bool has_import = (!module_visitor.imports_item[idx].empty());
-	if (!has_export && !has_import)
+	if (!is_header_unit && !has_export && !has_import)
 		return;
 
 	// in all cases assume that the C++20 flag has already been set
@@ -47,17 +48,30 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 		module_visitor.visit_transitive_imports(idx, [&](scan_item_idx_t imp_idx) {
 			fmt::format_to(cmd_buf, " /module:reference \"{}\"", bmi_file_func(imp_idx));
 		});
+
+		// todo: header unit flags ?
 	} else if(format.isClang()) {
 		module_visitor.visit_transitive_imports(idx, [&](scan_item_idx_t imp_idx) {
-			fmt::format_to(cmd_buf, " -Xclang -fmodule-file={}=\"{}\"", 
-				module_visitor.exports[imp_idx], bmi_file_func(imp_idx));
+			if(!module_visitor.exports[imp_idx].empty())
+				fmt::format_to(cmd_buf, " -Xclang -fmodule-file={}=\"{}\"", 
+					module_visitor.exports[imp_idx], bmi_file_func(imp_idx));
+			else // for header units
+				fmt::format_to(cmd_buf, " -Xclang -fmodule-file=\"{}\"",
+					bmi_file_func(imp_idx));
 		});
 
 		references_end = cmd_buf.size();
 
 		if (has_export)
-			fmt::format_to(cmd_buf, " -Xclang -emit-module-interface -Xclang -fmodule-name={}", module_visitor.exports[idx]);
+			fmt::format_to(cmd_buf, " -Xclang -emit-module-interface");
+
+		if (is_header_unit) {
+			std::size_t hash = std::hash<std::string_view> {} (item_set.items[idx].path);
+			// todo: fix the compiler so we don't need -fmodule-name or -I.
+			fmt::format_to(cmd_buf, " -Xclang -emit-header-module -Xclang -fmodule-name=hu_{} -I.", hash);
+		}
 	}
+	// todo: gcc
 }
 
 void ModuleCommandGenerator::full_cmd_to_string(std::string& str)

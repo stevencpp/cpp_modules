@@ -21,6 +21,9 @@ enum Compiler {
 	#define ALL_COMPILERS Compiler::clang
 #endif
 
+std::string_view get_compiler_path(Compiler compiler);
+Compiler get_compiler_from_str(std::string_view compiler);
+
 struct run_one_params {
 	std::string_view test_path;
 	std::string_view generator;

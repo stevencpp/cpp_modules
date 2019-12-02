@@ -45,11 +45,16 @@ public:
 		create_files(file_def, [](const std::string&){});
 	}
 
-	fs::path create_dir(std::string name) {
-		auto dir = tmp_path / name;
-		all_dirs_created.insert(std::move(name));
-		fs::create_directory(dir);
-		return dir;
+	fs::path create_dir(fs::path name) {
+		auto path = tmp_path / name;
+		fs::create_directories(path);
+		// we only need to add the first component to the set of dirs created
+		// because that whole subtree will be removed in the destructor
+		for (auto& component : name) {
+			all_dirs_created.insert(component.string());
+			break;
+		}
+		return path;
 	}
 public:
 

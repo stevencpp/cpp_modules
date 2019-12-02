@@ -11,6 +11,20 @@
 #include "test_config.h"
 #include "temp_file_test.h"
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
+
+namespace depinfo {
+	std::ostream& operator <<(std::ostream& os, DataBlock const& value) {
+		std::visit(overloaded {
+			[&](const std::string& s) {
+				os << "'" << s << "'";
+			}, [&](auto&) {}
+		}, value);
+		return os;
+	}
+}
+
 namespace scanner_test {
 
 ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
@@ -19,18 +33,6 @@ ConfigPath single_comp_db { "scanner_comp_db", "" };
 ConfigPath single_db_path { "scanner_db_path", "" };
 ConfigPath single_file_to_touch { "scanner_file_to_touch", "" };
 ConfigPath single_item_root_path { "scanner_item_root_path", "" };
-
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...)->overloaded<Ts...>;
-
-std::ostream& operator <<(std::ostream& os, depinfo::DataBlock const& value) {
-	std::visit(overloaded {
-		[&](const std::string& s) {
-			os << "'" << s << "'";
-		}, [&](auto&) {}
-		}, value);
-	return os;
-}
 
 struct DepInfoCollector : public cppm::DepInfoObserver {
 public:
@@ -167,6 +169,12 @@ struct ood_idx { // avoid vector initalizer list problems by using a struct
 
 using namespace Catch::Matchers;
 
+inline bool ends_with(std::string_view str, std::string_view with) {
+	if (str.size() < with.size())
+		return false;
+	return str.substr(str.size() - with.size(), with.size()) == with;
+}
+
 struct TempFileScanTest : public TempFileTest {
 private:
 	cppm::ScanItemSet item_set;
@@ -174,6 +182,7 @@ private:
 	std::unique_ptr<cppm::ModuleVisitor> module_visitor_result;
 	std::size_t nr_results = 0;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_expected;
+	// the set of scan item indices expected to be imported by each item
 	std::vector<std::vector<std::size_t>> expected_module_imports;
 	int scan_counter = 1;
 public:
@@ -204,7 +213,8 @@ public:
 		item_set.items.push_back({ 
 			.path = file,
 			.command_idx = item_set.commands.size(),
-			.target_idx = target_idx
+			.target_idx = target_idx,
+			.is_header_unit = ends_with(file, ".h")
 		});
 		std::string cmd = fmt::format("{} /Fo\"{}.{}.obj\"", default_command, file, item_set.targets[target_idx]);
 		item_set.commands.emplace_back(std::move(cmd));
@@ -271,6 +281,13 @@ public:
 
 	using opt_db_vec = std::optional<std::vector<depinfo::DataBlock>>;
 
+	std::string tmp_relative_path(const depinfo::DataBlock& path) {
+		fs::path source_path = std::get<std::string>(path);
+		if (source_path.is_absolute())
+			source_path = fs::relative(source_path, tmp_path);
+		return source_path.string();
+	}
+
 	void canonicalize(opt_db_vec& result_opt, opt_db_vec& expected_opt) {
 		for (auto& file : result_opt.value())
 			file = fs::canonical(std::get<std::string>(file)).string();
@@ -305,8 +322,12 @@ public:
 
 	auto get_module_names(std::optional<std::vector<depinfo::ModuleDesc>>& from) {
 		std::vector<std::string> names;
-		for (auto& desc : from.value())
-			names.push_back(std::get<std::string>(desc.logical_name));
+		for (auto& desc : from.value()) {
+			if (desc.source_path.has_value()) // header unit imports
+				names.push_back(tmp_relative_path(desc.source_path.value()));
+			else
+				names.push_back(std::get<std::string>(desc.logical_name));
+		}
 		return names;
 	}
 
@@ -498,6 +519,129 @@ export module b;
 
 		test.touch("c.h");
 		test.scan_check({ c });
+	}
+}
+
+TEST_CASE("test3 - header units", "[scanner]") {
+	TempFileScanTest test;
+
+	test.scan_check({}); // nothing to scan
+
+	test.create_deps(R"(
+> c.h
+> d.h
+	)");
+	test.create_items("target1", R"(
+> a.h
+import "b.h";
+#include "c.h"
+> b.h
+#ifdef FOO
+  #include "c.h"
+#else
+  #include "d.h"
+#endif
+> a.cpp
+export module a;
+import "a.h";
+> b.cpp
+#define FOO
+import "b.h";
+> c.cpp
+import a;
+#define FOO
+#include "b.h"
+	)");
+
+	#define SCANNER_BUG
+
+	using vdb = std::vector<depinfo::DataBlock>;
+	using vmd = std::vector<depinfo::ModuleDesc>;
+	using fc = depinfo::FutureDepInfo;
+	depinfo::DepInfo a_h_info = { .input = "a.h",
+	#ifdef SCANNER_BUG
+		.depends = vdb{ "c.h", "d.h" },
+	#else
+		.depends = vdb{ "c.h" },
+	#endif
+		.future_compile = fc {
+			.require = vmd { {.source_path = "b.h" } }
+		}
+	};
+	depinfo::DepInfo b_h_info = { .input = "b.h",
+		.depends = vdb{ "d.h" }
+	};
+	depinfo::DepInfo a_cpp_info = { .input = "a.cpp",
+	#ifdef SCANNER_BUG
+		.depends = vdb{ "c.h", "d.h" },
+	#endif
+		.future_compile = fc {
+			.provide = vmd { { .logical_name = "a" } },
+		#ifdef SCANNER_BUG
+			.require = vmd { { .source_path = "a.h" }, { .source_path = "b.h" } }
+		#else
+			.require = vmd { { .source_path = "a.h" } }
+		#endif
+		}
+	};
+	depinfo::DepInfo b_cpp_info = { .input = "b.cpp",
+	#ifdef SCANNER_BUG
+		.depends = vdb{ "c.h" },
+	#endif
+		.future_compile = fc {
+			.require = vmd { { .source_path = "b.h" } }
+		}
+	};
+	depinfo::DepInfo c_cpp_info = { .input = "c.cpp",
+	#ifdef SCANNER_BUG
+		.depends = vdb{ "c.h" },
+	#else
+		.depends = vdb{ "b.h", "c.h" },
+	#endif
+		.future_compile = fc {
+		#ifdef SCANNER_BUG
+			.require = vmd { { .logical_name = "a" }, {.source_path = "b.h" } }
+		#else
+			.require = vmd { { .logical_name = "a" } }
+		#endif
+		}
+	};
+	test.set_expected({ .sources = { a_h_info, b_h_info, a_cpp_info, b_cpp_info, c_cpp_info } },
+	#ifdef SCANNER_BUG
+		{ {1},{},{0,1},{1},{1,2} }
+	#else
+		{ {1},{},{0},{1},{2} }
+	#endif
+	);
+
+	ood_idx ah { 0 }, bh { 1 }, a { 2 }, b { 3 }, c { 4 };
+
+	test.scan_check({ ah, bh, a, b, c });
+
+	for (bool submit_previous_results : { false, true })
+	{
+		test.submit_previous_results = submit_previous_results;
+		test.scan_check({});
+
+		test.touch("a.h");
+		test.scan_check({ ah, a });
+
+		test.touch("b.h");
+		test.scan_check({ ah, bh, a, b, c });
+
+		test.touch("c.h");
+	#ifdef SCANNER_BUG
+		test.scan_check({ ah, a, b, c });
+	#else
+		test.scan_check({ ah, c });
+	#endif
+
+		test.touch("d.h");
+	#ifdef SCANNER_BUG
+		test.scan_check({ ah, bh, a, b, c });
+	#else
+		test.scan_check({ ah, bh, a, b });
+	#endif
 	}
 }
 

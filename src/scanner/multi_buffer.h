@@ -5,6 +5,28 @@
 #include <string_view>
 #include "span.hpp"
 
+// std::vector::resize can be expensive when the sanitizers are enabled
+struct uninitialized_buffer
+{
+	char* bytes;
+	std::size_t sz;
+	uninitialized_buffer(std::size_t size) {
+		sz = size;
+		bytes = new char[sz];
+	}
+	uninitialized_buffer(uninitialized_buffer&& other) {
+		bytes = other.bytes;
+		sz = other.sz;
+		other.bytes = nullptr;
+	}
+	char* data() { return bytes; }
+	std::size_t size() const { return sz; }
+	char& operator[](std::size_t idx) { return bytes[idx]; }
+	~uninitialized_buffer() {
+		delete[] bytes;
+	}
+};
+
 // store a vector of strings in a single string buffer and return it as a vector of string_views
 template<typename size_type = std::size_t>
 class multi_string_buffer {
@@ -55,25 +77,75 @@ class stable_multi_string_buffer
 private:
 	constexpr static int chunk_size = 1024 * 1024;
 
-	std::vector< std::vector<char> > buffers; // using vector<char> because it's not allowed to use SBO
+	std::vector< uninitialized_buffer > buffers; // using vector<char> because it's not allowed to use SBO
 	char* insert_position = nullptr;
 	std::size_t remaining_in_current_buffer = 0;
 public:
-	// copies str into the buffer and returns a stable string_view
-	std::string_view copy(std::string_view str) {
-		if (str.size() > remaining_in_current_buffer) {
-			if (str.size() > chunk_size)
+	char* alloc(std::size_t bytes) {
+		// todo: tell the compiler to always assume this is false
+		if (bytes > remaining_in_current_buffer) {
+			if (bytes > chunk_size)
 				throw std::invalid_argument("strings must be smaller than the chunk size");
-			auto &new_buf = buffers.emplace_back(chunk_size);
+			auto& new_buf = buffers.emplace_back(chunk_size);
 			insert_position = &new_buf[0];
 			remaining_in_current_buffer = chunk_size;
 		}
 
-		memcpy(insert_position, str.data(), str.size());
-		remaining_in_current_buffer -= str.size();
-		auto ret = std::string_view { insert_position, str.size() };
-		insert_position += str.size();
+		remaining_in_current_buffer -= bytes;
+		char* ret = insert_position;
+		insert_position += bytes;
 		return ret;
+	}
+
+	void free_last_alloc(std::size_t bytes) {
+		remaining_in_current_buffer += bytes;
+		insert_position -= bytes;
+	}
+
+	void shrink_last_alloc(std::size_t bytes) {
+		remaining_in_current_buffer += bytes;
+		insert_position -= bytes;
+	}
+
+	// copies str into the buffer and returns a stable string_view
+	std::string_view copy(std::string_view str) {
+		char* buf = alloc(str.size());
+		memcpy(buf, str.data(), str.size());
+		return std::string_view { buf, str.size() };
+	}
+
+	struct ref_t {
+		uint32_t buffer_idx;
+		uint32_t offset;
+		uint32_t size;
+	};
+
+	auto get_last_alloc_reference(std::string_view str) {
+		assert(!buffers.empty());
+		return ref_t {(uint32_t)buffers.size() - 1, (uint32_t)(str.data() - buffers.back().data()), (uint32_t)str.size() };
+	}
+
+	std::string_view get_alloc(ref_t reference) {
+		assert(reference.buffer_idx < buffers.size() && reference.offset + reference.size < chunk_size);
+		return { &buffers[reference.buffer_idx][reference.offset], (std::size_t)reference.size };
+	}
+
+	std::size_t size() {
+		return buffers.size() * chunk_size - remaining_in_current_buffer;
+	}
+
+	auto& get_buffers() {
+		return buffers;
+	}
+
+	auto get_allocated_in_current_buffer() {
+		return chunk_size - remaining_in_current_buffer;
+	}
+
+	void clear() {
+		buffers.clear();
+		remaining_in_current_buffer = 0;
+		insert_position = nullptr;
 	}
 };
 
@@ -152,6 +224,20 @@ public:
 
 	size_type size() const {
 		return max_idx + 1;
+	}
+
+	bool empty() const {
+		return vecs.empty();
+	}
+
+	void resize(size_type new_size) {
+		if (new_size == size_type { 0 }) {
+			max_idx = size_type{}; // todo: ?
+			return;
+		}
+
+		max_idx = new_size - 1;
+		vecs.reserve((std::size_t)new_size);
 	}
 
 	std::vector<T> move_buffer() {

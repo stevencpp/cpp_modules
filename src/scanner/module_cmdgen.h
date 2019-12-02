@@ -4,6 +4,7 @@
 
 #include <string>
 #include <functional>
+#pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include "fmt/format.h"
 
 namespace cppm {

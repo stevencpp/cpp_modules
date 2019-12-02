@@ -20,14 +20,15 @@ struct ScanItemBase {
 	string_t path; // UTF_8
 	cmd_idx_t command_idx = {};
 	target_idx_t target_idx = {};
+	bool is_header_unit = false;
 
 	template<typename other_string_t>
 	static ScanItemBase<string_t> from(const ScanItemBase<other_string_t> & item) {
-		return { item.path, item.command_idx, item.target_idx };
+		return { item.path, item.command_idx, item.target_idx, item.is_header_unit };
 	}
 
 	explicit operator ScanItemBase<std::string_view>() const {
-		return { path, command_idx, target_idx };
+		return { path, command_idx, target_idx, is_header_unit };
 	}
 };
 
@@ -128,6 +129,7 @@ enum class ood_state {
 	new_file,
 	file_changed,
 	deps_changed,
+	item_deps_changed,
 	up_to_date
 };
 
@@ -149,15 +151,16 @@ struct DepInfoObserver {
 
 	// todo: maybe use a separate function_ref for each of these
 	// so the user can subscribe to only a subset of them ?
-	virtual void results_for_item(scan_item_idx_t item_idx, bool out_of_date) {}
-	virtual void export_module(DataBlockView name) {}
-	virtual void import_module(DataBlockView name) {}
-	virtual void include_header(DataBlockView path) {}
-	virtual void import_header(DataBlockView path) {}
-	virtual void other_file_dep(DataBlockView path) {}
+	virtual void results_for_item(scan_item_idx_t /*item_idx*/, bool /*out_of_date*/) {}
+	virtual void export_module(DataBlockView /*name*/) {}
+	virtual void import_module(DataBlockView /*name*/) {}
+	virtual void include_header(DataBlockView /*path*/) {}
+	virtual void import_header(DataBlockView /*path*/) {}
+	virtual void other_file_dep(DataBlockView /*path*/) {}
 	virtual void item_finished() {}
 };
 
+// todo: refactor this, give it another name, it does much more than just visit modules
 struct ModuleVisitor {
 	std::vector<scan_item_idx_t> imports_item_buf;
 	std::vector<char> modules_buf;

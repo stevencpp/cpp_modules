@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: CI
 
 on: [push]
 
@@ -8,7 +8,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VCPKG_GIT_HASH: 29def6aa636a9985d068aa4624172720c0005e09
-      VCPKG_DEPS: fmt lmdb nlohmann-json catch2 range-v3 clara reproc
+      VCPKG_DEPS: fmt lmdb nlohmann-json catch2 range-v3 clara reproc abseil
     
     strategy:
       fail-fast: false
@@ -65,8 +65,8 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y clang-9 lld-9 libc++-9-dev libc++abi-9-dev clang-tools-9
           export CXX=clang++-9; export CC=clang-9;
-          #export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined";
-          export CXXFLAGS="-stdlib=libc++"
+          export CXXFLAGS="-stdlib=libc++ -fsanitize=address,undefined";
+          #export CXXFLAGS="-stdlib=libc++"
           export CSD_CXXFLAGS="-stdlib=libc++"
           export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
           # apt fetches a new version of the compiler every few days
@@ -131,17 +131,17 @@ jobs:
 
         ninja `ninja -t targets all | grep cmake_object_order_depends_target | sed 's/: phony//' | tr '\n' ' '`
         cd ..
-        mkdir scan
+        mkdir ../scan # 'find' should not find the scan directory in the current path
         find llvm-build -regextype posix-extended \
           -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
-          -exec cp --parents {} scan \;
-        cp --parents llvm-build/compile_commands.json scan
+          -exec cp --parents {} ../scan \;
+        cp --parents llvm-build/compile_commands.json ../scan
         find llvm-project -regextype posix-extended \
           -not -regex '.*/(test|INPUTS|docs).*' -and \
           -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
-          -exec cp --parents {} scan \;
-        cp --parents llvm-project/lld/unittests/MachOTests/empty_obj_x86_armv7.txt scan
-        mv scan csd
+          -exec cp --parents {} ../scan \;
+        cp --parents llvm-project/lld/unittests/MachOTests/empty_obj_x86_armv7.txt ../scan
+        mv ../scan csd
         
     - name: clang-scan-deps upload
       if: steps.cache-csd.outputs.cache-hit != 'true'
@@ -230,18 +230,25 @@ jobs:
     
     - name: test
       shell: bash
+      continue-on-error: true
       run: |
         source env.sh
         
         if [ ! -d llvm-build ]; then
           if [ "$RUNNER_OS" != "Windows" ]; then
             mv csd/scan/* .
+            ln -s /usr/lib/llvm-9/include/c++ llvm-build/include/c++
+            rm -rf llvm-project/libcxx/include
+            ln -s /usr/lib/llvm-9/include/c++/v1 llvm-project/libcxx/include
+            fuzzer_dir=llvm-build/projects/compiler-rt/lib/fuzzer/libcxx_fuzzer_x86_64/include/c++/v1
+            rm -rf $fuzzer_dir
+            ln -s /usr/lib/llvm-9/include/c++/v1 $fuzzer_dir
           fi
           mkdir -p llvm-build/bin
           mv csd/clang-scan-deps* llvm-build/bin
         fi
         
-        TESTS="[lmdb],[scanner],[gen_ninja]"
+        TESTS="[lmdb],[scanner],[gen_ninja],[ninja]"
         if [ "$RUNNER_OS" = "Windows" ]; then
           TESTS="$TESTS,[msbuild]"
           CONFIG_DIR="Debug"
@@ -263,7 +270,7 @@ jobs:
         cd llvm-build
         mkdir -p tools/clang/tools/extra/clangd/fuzzer #workaround for an include bug
         mkdir -p tools/clang/tools/extra/clangd/tool #same
-        ../build/src/test/$TEST_DRIVER [scanner_comp_db] \
+        ../build/src/test/$CONFIG_DIR/cppm_test [scanner_comp_db] \
           --scanner_comp_db=compile_commands.json \
           --scanner_db_path="." --scanner_item_root_path="." \
           --scanner_file_to_touch=../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp \

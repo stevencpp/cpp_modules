@@ -4,14 +4,14 @@ find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(lmdb CONFIG REQUIRED)
 find_package(reproc CONFIG REQUIRED)
-#find_package(absl CONFIG REQUIRED)
+find_package(absl CONFIG REQUIRED)
 
 include(FetchContent)
 
 FetchContent_Declare(
   ninja
   GIT_REPOSITORY https://github.com/stevencpp/ninja.git
-  GIT_TAG        3c0e177b2607f971e663ecbad0efab5d5ed39a40
+  GIT_TAG        6fcbf2556dcba7caf77c05a38ad8ba7ea9047c57
 )
 
 FetchContent_MakeAvailable(ninja)
@@ -44,7 +44,7 @@ target_link_libraries(cppm_scanner
 	PRIVATE nlohmann_json nlohmann_json::nlohmann_json
 	PRIVATE fmt::fmt
 	PRIVATE lmdb
-	#PRIVATE absl::flat_hash_map absl::hashtablez_sampler
+	PRIVATE absl::flat_hash_map absl::hashtablez_sampler
 	PRIVATE cppm_utils
 )
 

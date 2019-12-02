@@ -15,37 +15,23 @@ namespace fs = std::filesystem;
 ConfigPath ninja_path { "ninja_path", "", "path to the ninja executable" };
 ConfigPath ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/ninja.exe", "path to the ninja executable" };
 ConfigPath scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
-ConfigPath clang_cxx_path { "clang_cxx_path", R"(C:\Program Files\LLVM\bin\clang++.exe)" };
-ConfigPath clang_cl_path { "clang_cl_path", R"(C:\Program Files\LLVM\bin\clang-cl.exe)" };
 ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
 
-ConfigString cfg_run_set { "ninja-run-set", "dag,concurrent" };
+ConfigString ninja_run_set { "ninja_run_set", "dag,concurrent" };
+ConfigString ninja_compiler { "ninja_compiler", "" };
 
 using system_test::Compiler;
-
-void add_compiler_ninja_args(cppm::CmdArgs& cmd, std::string_view cxx) {
-	cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", cxx);
-}
-
-void add_compiler_ninja_args(cppm::CmdArgs& cmd, Compiler compiler) {
-	if (compiler == Compiler::clang)
-		add_compiler_ninja_args(cmd, clang_cxx_path);
-	else if (compiler == Compiler::clang_cl)
-		add_compiler_ninja_args(cmd, clang_cl_path);
-	else if (compiler == Compiler::msvc)
-		add_compiler_ninja_args(cmd, "cl.exe");
-}
 
 void generate_compilation_database(Compiler compiler = Compiler::msvc) {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE "
 		"-DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja .. ", ninja_path };
-	add_compiler_ninja_args(gen_cmd, compiler);
+	gen_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", get_compiler_path(compiler));
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
 void generate_ninja(Compiler compiler = Compiler::msvc) {
 	cppm::CmdArgs gen_cmd = { "cmake -DCMAKE_MAKE_PROGRAM=\"{}\" -G Ninja .. ", ninja_path };
-	add_compiler_ninja_args(gen_cmd, compiler);
+	gen_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", get_compiler_path(compiler));
 	REQUIRE(0 == run_cmd(gen_cmd));
 }
 
@@ -131,9 +117,11 @@ set_property(TARGET test PROPERTY CXX_STANDARD 20)
 
 using namespace system_test;
 
-TEST_CASE("ninja generator system test", "[gen_ninja]") {
-	auto compiler = GENERATE(ALL_COMPILERS);
-	for (std::string& test : get_run_set("", cfg_run_set)) {
+TEST_CASE("ninja generator system test", "[ninja]") {
+	auto compiler = !ninja_compiler.empty() ? get_compiler_from_str(ninja_compiler.sv()) :
+		GENERATE(ALL_COMPILERS);
+
+	for (std::string& test : get_run_set("", ninja_run_set)) {
 		full_clean_one(test);
 		run_one(test, { .generator = "Ninja", .compiler = compiler });
 	}
