@@ -133,12 +133,12 @@ jobs:
         cd ..
         mkdir ../scan # 'find' should not find the scan directory in the current path
         find llvm-build -regextype posix-extended \
-          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
+          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|ipp|S)$' \
           -exec cp --parents {} ../scan \;
         cp --parents llvm-build/compile_commands.json ../scan
         find llvm-project -regextype posix-extended \
           -not -regex '.*/(test|INPUTS|docs).*' -and \
-          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|S)$' \
+          -regex '.*\.(c|cc|cpp|cxx|def|h|hh|hpp|hxx|inc|ipp|S)$' \
           -exec cp --parents {} ../scan \;
         cp --parents llvm-project/lld/unittests/MachOTests/empty_obj_x86_armv7.txt ../scan
         mv ../scan csd

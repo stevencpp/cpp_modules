@@ -58,7 +58,13 @@ struct DB {
 		TRACE();
 		using namespace mdb::flags;
 		constexpr int MB = 1024 * 1024;
+#ifdef _WIN32
 		env.set_map_size(16 * MB);
+#else
+		// on linux we could just set an arbitrarily large value here,
+		// as the DB only taskes up as much space as needed anyway
+		env.set_map_size(512 * MB);
+#endif
 		env.set_maxdbs(6);
 		env.open(concat_u8_path(db_path, db_file_name).c_str(), env::nosubdir);
 	}

@@ -314,8 +314,16 @@ decltype(auto) from_val(MDB_val val) {
 		if (val.mv_size != sizeof(T)) {
 			throw std::runtime_error("size mismatch");
 		}
-		// todo: use std::bless/start_lifetime_as<T> to remove the UB ?
-		return *reinterpret_cast<T*>(val.mv_data); // l-value reference to the data
+		// todo: use std::bless/start_lifetime_as<T> ?
+		// return *reinterpret_cast<T*>(val.mv_data); // l-value reference to the data
+		// returning a reference to the data would requite it to be aligned according to T
+		// but e.g the key/value might contain arbitrary length strings
+		// so instead copy it to a properly aligned local variable
+		// todo: if T is large we may still want to allow returning by reference
+		// and letting the caller ensure proper alignment (e.g by padding strings)
+		T ret;
+		memcpy(&ret, val.mv_data, sizeof(T));
+		return ret;
 	}
 }
 
