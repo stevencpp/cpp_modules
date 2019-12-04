@@ -20,7 +20,7 @@ endmacro()
 
 if(NOT DEFINED CPPM_SCANNER_PATH)
 	required_find_program(CPPM_SCANNER_PATH clang-scan-deps
-		HINTS "C:/Program Files/LLVM/bin" "/usr/local/cpp_modules/bin"
+		HINTS "${CMAKE_CURRENT_LIST_DIR}/../bin"
 		DOC "path to the patched clang-scan-deps executable")
 endif()
 message(STATUS "using the scanner at '${CPPM_SCANNER_PATH}'")
@@ -30,7 +30,7 @@ if(CMAKE_GENERATOR MATCHES "Visual Studio")
 		HINTS "${CMAKE_CURRENT_LIST_DIR}/../etc" DOC "path containing cpp_modules.targets and its dependencies")
 endif()
 if(CMAKE_GENERATOR MATCHES "Ninja")
-	set(CMAKE_MAKE_PROGRAM "${CMAKE_CURRENT_LIST_DIR}/../etc/ninja" CACHE FILEPATH "" FORCE)
+	set(CMAKE_MAKE_PROGRAM "${CMAKE_CURRENT_LIST_DIR}/../bin/ninja" CACHE FILEPATH "" FORCE)
 	message(STATUS "using the ninja at '${CMAKE_MAKE_PROGRAM}'")
 	file(WRITE "${CMAKE_BINARY_DIR}/scanner_config.txt" "tool_path ${CPPM_SCANNER_PATH}\n")
 endif()

@@ -2,6 +2,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 	<PropertyGroup>
 		<CppM_TargetsPath 		Condition="'$(CppM_TargetsPath)' 	  ==''">c:\Program Files\cpp_modules\etc\</CppM_TargetsPath>
+		<CppM_BinPath			Condition="'$(CppM_BinPath)'		  ==''">$(CppM_TargetsPath)\..\bin\</CppM_BinPath>
 		<CppM_ClangPath       	Condition="'$(CppM_ClangPath)'        ==''">c:\Program Files\LLVM\bin</CppM_ClangPath>
 		<CppM_ClangScanDepsPath Condition="'$(CppM_ClangScanDepsPath)'==''">$(CppM_ClangPath)\clang-scan-deps.exe</CppM_ClangScanDepsPath>
 		<CppM_NinjaExePath 		Condition="'$(CppM_NinjaExePath)'	  ==''">$(VCIDEInstallDir)\..\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe</CppM_NinjaExePath>
@@ -76,9 +77,9 @@
 			<!-- for the MSBuild task !-->
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll"/>
 			<!-- for Newtonsoft.Json !-->
-			<Reference Include="$(CppM_TargetsPath)Newtonsoft.Json.dll" />
+			<Reference Include="$(CppM_BinPath)Newtonsoft.Json.dll" />
 			<!-- cppm_scanner !-->
-			<Reference Include="$(CppM_TargetsPath)cppm_scanner_cs.dll" />
+			<Reference Include="$(CppM_BinPath)cppm_scanner_cs.dll" />
 			
 			<Code Type="Class" Language="cs" Source="$(CppM_TargetsPath)cpp_modules.cs" />
 		</Task>

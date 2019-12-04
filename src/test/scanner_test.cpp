@@ -27,7 +27,7 @@ namespace depinfo {
 
 namespace scanner_test {
 
-ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
+ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\cpp_modules\bin\clang-scan-deps.exe)" };
 ConfigString default_command { "scanner_default_command", R"("cl.exe" /c /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D WIN32 /D _WINDOWS /D _MBCS /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++latest /Gd /TP)" };
 ConfigPath single_comp_db { "scanner_comp_db", "" };
 ConfigPath single_db_path { "scanner_db_path", "" };

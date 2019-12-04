@@ -15,7 +15,7 @@ namespace system_test {
 ConfigPath cfg_test_path { "system_test_path", "../../../tests" };
 ConfigPath clang_cxx_path { "clang_cxx_path", R"(C:\Program Files\LLVM\bin\clang++.exe)" };
 ConfigPath clang_cl_path { "clang_cl_path", R"(C:\Program Files\LLVM\bin\clang-cl.exe)" };
-ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
+ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\cpp_modules\bin\clang-scan-deps.exe)" };
 
 void full_clean_one(const std::string& test)
 {

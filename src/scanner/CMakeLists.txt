@@ -100,10 +100,10 @@ set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
 #set_property(TARGET cppm_scanner_cs PROPERTY DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
 
 # copy all the DLLs
-install(TARGETS cppm_scanner_cs DESTINATION etc)
+install(TARGETS cppm_scanner_cs DESTINATION bin)
 endif(MSVC)
 
-install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION etc)
-install(FILES "$<TARGET_FILE:lmdb>" DESTINATION etc)
-install(FILES "$<TARGET_FILE:reproc>" DESTINATION etc)
-install(TARGETS ninja DESTINATION etc)
+install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION bin)
+install(FILES "$<TARGET_FILE:lmdb>" DESTINATION bin)
+install(FILES "$<TARGET_FILE:reproc>" DESTINATION bin)
+install(TARGETS ninja DESTINATION bin)

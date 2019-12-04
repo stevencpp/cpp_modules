@@ -15,7 +15,7 @@ namespace fs = std::filesystem;
 ConfigPath ninja_path { "ninja_path", "", "path to the ninja executable" };
 ConfigPath ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/ninja.exe", "path to the ninja executable" };
 ConfigPath scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
-ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\LLVM\bin\clang-scan-deps.exe)" };
+ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\cpp_modules\bin\clang-scan-deps.exe)" };
 
 ConfigString ninja_run_set { "ninja_run_set", "dag,concurrent" };
 ConfigString ninja_compiler { "ninja_compiler", "" };

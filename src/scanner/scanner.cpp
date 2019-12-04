@@ -139,20 +139,21 @@ struct DB {
 		module_id_t db_max_module_id = {}; // the largest module id the database + 1
 
 		void resize(scan_item_idx_t size) {
+			TRACE();
 			DB::resize_all_to(size, file_id, cmd_hash, last_successful_scan, file_deps, item_deps, exports, imports);
 		}
 	};
 	auto get_item_data(span_map<scan_item_idx_t, const db_target_id> item_target_ids, std::string_view item_root_path,
 		span_map<scan_item_idx_t, const ScanItemView> items) 
 	{
-		TRACE();
 		item_data data;
+		data.resize(items.size()); // todo: can we not allocate all this if the DB is empty ?
+
 		data.file_id = get_item_file_ids(item_root_path, items);
 		data.db_max_file_id = path_store.db_max_id + 1; // todo: this is terrible
 		data.max_file_id = path_store.next_id;
 
-		data.resize(items.size()); // todo: can we not allocate all this if the DB is empty ?
-
+		TRACE(); // the resize and the get_item_file_ids are measured separately
 		// todo: maybe make file_id the key and allow duplicates >
 		auto db = txn_rw.open_db<item_id_t, item_entry>("items");
 
@@ -635,6 +636,7 @@ struct ScannerImpl {
 			auto path = get_rooted_path(directory, items[i].path).string();
 			json["file"] = path;
 			std::string cmd = (std::string)commands[items[i].command_idx];
+			//cmd += " -v ";
 			if (!commands_contain_item_path) cmd += fmt::format(" \"{}\"", path);
 			json["command"] = std::move(cmd);
 			json_array.push_back(json);
@@ -974,9 +976,6 @@ struct ScannerImpl {
 		// to get the OS to cache them and reduce the overhead of ninja restatting them afterwards ?
 
 		// todo: maybe cleanup things that were removed ?
-
-		//fmt::print("\n");
-		// output information for the module maps
 		return ret;
 	}
 
@@ -1009,16 +1008,16 @@ std::string Scanner::scan(const ConfigView & cc)
 
 	ConfigView c = cc;
 	auto& ci = c.item_set;
-	if (c.tool_path.empty()) throw std::runtime_error("must provide a tool path");
-	if (c.db_path.empty()) throw std::runtime_error("must provide a db path");
-	if (c.int_dir.empty()) throw std::runtime_error("must provide an intermediate path");
-	if (ci.targets.empty()) throw std::runtime_error("must provide at least one target");
+	if (c.tool_path.empty()) throw std::invalid_argument("must provide a tool path");
+	if (c.db_path.empty()) throw std::invalid_argument("must provide a db path");
+	if (c.int_dir.empty()) throw std::invalid_argument("must provide an intermediate path");
+	if (ci.targets.empty()) throw std::invalid_argument("must provide at least one target");
 
 	if (c.build_start_time == 0)
 		c.build_start_time = file_time_t_now();
 
 	if (c.module_visitor != nullptr && c.submit_previous_results == false)
-		throw std::runtime_error("previous results are needed for the module visitor");
+		throw std::invalid_argument("previous results are needed for the module visitor");
 
 	for (auto& item : c.item_set.items) {
 		if (item.target_idx >= c.item_set.targets.size())
@@ -1028,6 +1027,9 @@ std::string Scanner::scan(const ConfigView & cc)
 			throw std::invalid_argument(fmt::format("target_idx {} for {} is out of range [0..{}-1]",
 				(uint32_t)item.command_idx, item.path, (uint32_t)c.item_set.commands.size()));
 	}
+
+	if (!fs::exists(c.tool_path))
+		throw std::invalid_argument(fmt::format("tool path '{}' does not exist", c.tool_path));
 
 	auto ret = impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
 		ci.commands_contain_item_path, ci.commands, ci.targets, ci.items,
@@ -1042,8 +1044,8 @@ void Scanner::clean(const ConfigView & c) {
 	if (ci.items.empty())
 		return;
 
-	if (c.db_path.empty()) throw std::runtime_error("must provide a db path");
-	if (ci.targets.empty()) throw std::runtime_error("must provide at least one target");
+	if (c.db_path.empty()) throw std::invalid_argument("must provide a db path");
+	if (ci.targets.empty()) throw std::invalid_argument("must provide at least one target");
 
 	impl->clean(c.db_path, ci.item_root_path, ci.targets, ci.items);
 }
