@@ -45,6 +45,9 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 		if (has_export)
 			fmt::format_to(cmd_buf, " /module:interface /module:output \"{}\"", bmi_file_func(idx));
 
+		if (is_header_unit)
+			fmt::format_to(cmd_buf, " /module:export /module:name fixme /module:output \"{}\"", bmi_file_func(idx));
+
 		module_visitor.visit_transitive_imports(idx, [&](scan_item_idx_t imp_idx) {
 			fmt::format_to(cmd_buf, " /module:reference \"{}\"", bmi_file_func(imp_idx));
 		});

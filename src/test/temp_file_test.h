@@ -56,6 +56,22 @@ public:
 		}
 		return path;
 	}
+
+	void touch(std::string_view file_name) {
+		auto path = tmp_path / file_name;
+		if (fs::exists(path)) {
+			fs::last_write_time(path, fs::file_time_type::clock::now());
+		} else {
+			std::ofstream { path };
+			all_files_created.insert((std::string)file_name);
+		}
+	}
+
+	void remove(std::string_view file_name) {
+		auto path = tmp_path / file_name;
+		fs::remove(path);
+		all_files_created.erase((std::string)file_name);
+	}
 public:
 
 	TempFileTest() {

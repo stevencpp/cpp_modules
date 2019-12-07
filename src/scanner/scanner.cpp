@@ -786,6 +786,7 @@ struct ScannerImpl {
 			}
 			return true;
 		}, [](std::string_view err_line) {
+			// todo: record and return errors for each item
 			fmt::print("ERR: {}\n", err_line);
 			return true;
 		});
@@ -888,8 +889,25 @@ struct ScannerImpl {
 		}
 	}
 
+	auto get_results(span_map<scan_item_idx_t, char> got_result,
+		span_map<scan_item_idx_t, ood_state> item_ood)
+	{
+		vector_map<scan_item_idx_t, Scanner::Result> ret;
+		ret.reserve(got_result.size());
+		for (auto idx : got_result.indices()) {
+			// todo: currently, if the scan fails then we don't update the item
+			// so it never gets saved in failed state
+			// and so if it's up to date then it must've succeeded last time
+			// but maybe we should should save the errors ?
+			bool success = (item_ood[idx] == ood_state::up_to_date || got_result[idx]);
+			ret.push_back({ item_ood[idx],
+				success ? scan_state::success : scan_state::failed });
+		}
+		return ret;
+	}
+
 	// note: all of the input paths are required to be normalized already
-	std::string scan(Scanner::Type tool_type, std::string_view tool_path, 
+	auto scan(Scanner::Type tool_type, std::string_view tool_path,
 		std::string_view db_path, std::string_view int_dir, std::string_view item_root_path,
 		bool commands_contain_item_path, span_map<cmd_idx_t, std::string_view> commands,
 		span_map<target_idx_t, std::string_view> targets, 
@@ -898,8 +916,6 @@ struct ScannerImpl {
 		DepInfoObserver * observer, bool submit_previous_results, ModuleVisitor * module_visitor)
 	{
 		TRACE();
-
-		std::string ret;
 
 		// todo: we may not need to recompute some of this if we can detect that the environment stays constant
 		// todo: do this while reading data from the DB, use an eager future
@@ -976,7 +992,7 @@ struct ScannerImpl {
 		// to get the OS to cache them and reduce the overhead of ninja restatting them afterwards ?
 
 		// todo: maybe cleanup things that were removed ?
-		return ret;
+		return get_results(data.got_result, item_ood);
 	}
 
 	void clean(std::string_view db_path, std::string_view item_root_path,
@@ -1001,10 +1017,10 @@ Scanner::Scanner() : impl(std::make_unique<ScannerImpl>()) {
 
 Scanner::~Scanner() {}
 
-std::string Scanner::scan(const ConfigView & cc)
+vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc)
 {
 	if (cc.item_set.items.empty())
-		return "";
+		return {};
 
 	ConfigView c = cc;
 	auto& ci = c.item_set;
@@ -1031,12 +1047,10 @@ std::string Scanner::scan(const ConfigView & cc)
 	if (!fs::exists(c.tool_path))
 		throw std::invalid_argument(fmt::format("tool path '{}' does not exist", c.tool_path));
 
-	auto ret = impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
+	return impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
 		ci.commands_contain_item_path, ci.commands, ci.targets, ci.items,
 		c.build_start_time, c.concurrent_targets, c.file_tracker_running,
 		c.observer, c.submit_previous_results, c.module_visitor);
-
-	return ret;
 }
 
 void Scanner::clean(const ConfigView & c) {

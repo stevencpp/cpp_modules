@@ -133,6 +133,11 @@ enum class ood_state {
 	up_to_date
 };
 
+enum class scan_state {
+	failed, // scanning failed
+	success // scanned successfully
+};
+
 struct DepInfoObserver {
 	struct RawDataBlockView {
 		std::string_view format;
@@ -263,7 +268,12 @@ public:
 	Scanner();
 	~Scanner();
 
-	std::string scan(const ConfigView& config);
+	struct Result {
+		ood_state ood;
+		scan_state scan;
+	};
+ 
+	vector_map<scan_item_idx_t, Result> scan(const ConfigView& config);
 
 	void clean(const ConfigView& config);
 };

@@ -39,9 +39,11 @@ public:
 	constexpr static bool print_results = false;
 
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_infos;
+	vector_map<cppm::scan_item_idx_t, char> is_ood;
 	std::size_t nr_results = 0;
 	DepInfoCollector(span_map<cppm::scan_item_idx_t, const cppm::ScanItemView> items) : items(items) {
 		all_infos.resize(items.size());
+		is_ood.resize(items.size());
 	}
 private:
 	span_map<cppm::scan_item_idx_t, const cppm::ScanItemView> items;
@@ -82,6 +84,7 @@ private:
 		cur_info = &all_infos[current_item_idx];
 		//cur_info->input = (std::string)items[current_item_idx].path;
 		cur_info->input = (std::size_t)current_item_idx;
+		is_ood[current_item_idx] = out_of_date;
 		if (print_results) fmt::print("test: current item = {}\n", items[current_item_idx].path);
 	}
 	void export_module(DataBlockView name) override {
@@ -163,10 +166,6 @@ TEST_CASE("scanner - from a compilation database", "[scanner_comp_db]") {
 	}
 }
 
-struct ood_idx { // avoid vector initalizer list problems by using a struct
-	std::size_t idx;
-};
-
 using namespace Catch::Matchers;
 
 inline bool ends_with(std::string_view str, std::string_view with) {
@@ -179,22 +178,31 @@ struct TempFileScanTest : public TempFileTest {
 private:
 	cppm::ScanItemSet item_set;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_results;
-	std::unique_ptr<cppm::ModuleVisitor> module_visitor_result;
+	vector_map<cppm::scan_item_idx_t, char> observer_result_is_ood;
 	std::size_t nr_results = 0;
+
+	vector_map<cppm::scan_item_idx_t, char> has_previous_result;
+
+	vector_map<cppm::scan_item_idx_t, cppm::Scanner::Result> scanner_results;
+	std::unique_ptr<cppm::ModuleVisitor> module_visitor_result;
+	
+	vector_map< cppm::scan_item_idx_t, char> expect_results;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_expected;
 	// the set of scan item indices expected to be imported by each item
-	std::vector<std::vector<std::size_t>> expected_module_imports;
-	int scan_counter = 1;
+	std::vector<std::vector<cppm::scan_item_idx_t>> expected_module_imports;
+	int scan_counter = 0;
+	int current_line = 0; // line from which the last test method was called
 public:
 	bool submit_previous_results = false;
 
-	void set_expected(depinfo::DepFormat expected, std::vector<std::vector<std::size_t>> expected_module_imports = {}) {
+	void set_expected(depinfo::DepFormat expected, std::vector<std::vector<cppm::scan_item_idx_t>> expected_module_imports = {}) {
 		init_optionals(expected);
 		// todo: this assumes expected.sources is ordered the same as item_set.items
 		for (auto& depinfo : expected.sources)
 			all_expected.push_back(std::move(depinfo));
 		this->expected_module_imports = std::move(expected_module_imports);
 		this->expected_module_imports.resize((std::size_t)all_expected.size());
+		has_previous_result.resize(all_expected.size());
 	}
 
 	TempFileScanTest() : TempFileTest() {
@@ -256,14 +264,15 @@ public:
 
 		cppm::Scanner scanner;
 
-		auto what = fmt::format("scan {}", scan_counter++);
+		auto what = fmt::format("scan {}", ++scan_counter);
 		
 		timer t;
 		t.start();
-		scanner.scan(config);
+		scanner_results = scanner.scan(config);
 		t.stop(what);
 
 		all_results = std::move(collector.all_infos);
+		observer_result_is_ood = std::move(collector.is_ood);
 		nr_results = collector.nr_results;
 	}
 
@@ -277,6 +286,9 @@ public:
 
 		cppm::Scanner scanner;
 		scanner.clean(config);
+
+		for (auto& has : has_previous_result)
+			has = false;
 	}
 
 	using opt_db_vec = std::optional<std::vector<depinfo::DataBlock>>;
@@ -331,24 +343,49 @@ public:
 		return names;
 	}
 
-	void check(const std::vector<ood_idx>& ood_indices) {
-		if (!submit_previous_results) {
-			CHECK(nr_results == ood_indices.size());
-		} else {
-			CHECK(nr_results == (std::size_t)item_set.items.size());
-		}
+	void check(const std::vector<cppm::scan_item_idx_t>& ood_indices,
+		const std::vector<cppm::scan_item_idx_t>& fail_indices = {})
+	{
+		auto to_id_map = [&](auto& vec) {
+			vector_map<cppm::scan_item_idx_t, char> id_map;
+			id_map.resize(item_set.items.size());
+			for (auto idx : vec)
+				id_map[idx] = true;
+			return id_map;
+		};
 
-		vector_map<cppm::scan_item_idx_t, char> expect_is_ood;
-		expect_is_ood.resize(item_set.items.size());
-		for (auto idx_wrapper : ood_indices)
-			expect_is_ood[cppm::scan_item_idx_t { idx_wrapper.idx }] = true;
+		auto expect_is_ood = to_id_map(ood_indices);
+		auto expect_failed = to_id_map(fail_indices);
+
+		auto expect_result = [&](cppm::scan_item_idx_t idx) {
+			if (expect_failed[idx])
+				return false;
+			// if submit_previous_results then they should be available,
+			// unless this is the first scan or last time the scan failed
+			if (submit_previous_results && has_previous_result[idx])
+				return true;
+			// otherwise we only expect to get result for ood items that got scanned
+			return (bool)expect_is_ood[idx];
+		};
 
 		for (auto item_idx : all_results.indices()) {
-			if (!expect_is_ood[item_idx] && !submit_previous_results)
-				continue;
-			depinfo::DepInfo& res_info = all_results[item_idx];
 			depinfo::DepInfo& exp_info = all_expected[item_idx];
 			INFO("checking " << std::get<std::string>(exp_info.input) << " (" << (uint32_t)item_idx << ")");
+
+			cppm::Scanner::Result& res_ret = scanner_results[item_idx];
+			bool res_failed = (res_ret.scan == cppm::scan_state::failed);
+			bool res_is_ood = (res_ret.ood != cppm::ood_state::up_to_date &&
+				res_ret.ood != cppm::ood_state::unknown);
+			CHECK(res_failed == (bool)expect_failed[item_idx]);
+			CHECK(res_is_ood == (bool)expect_is_ood[item_idx]);
+
+			depinfo::DepInfo& res_info = all_results[item_idx];
+			bool got_result = std::holds_alternative<std::size_t>(res_info.input);
+			CHECK(got_result == expect_result(item_idx));
+			has_previous_result[item_idx] |= (char)got_result;
+			if (!got_result)
+				continue;
+			CHECK(observer_result_is_ood[item_idx] == expect_is_ood[item_idx]);
 
 			init_optionals(res_info);
 
@@ -367,27 +404,38 @@ public:
 			CHECK_THAT(res_requires, UnorderedEquals(exp_requires));
 
 			if (submit_previous_results) {
-				std::vector<std::size_t> res_imports;
+				std::vector<cppm::scan_item_idx_t> res_imports;
 				for (auto imp_idx : module_visitor_result->imports_item[item_idx])
-					res_imports.push_back((std::size_t)imp_idx);
+					res_imports.push_back(imp_idx);
+				//auto& res_imports = module_visitor_result->imports_item[item_idx];
 				auto& exp_imports = expected_module_imports[(std::size_t)item_idx];
 				CHECK_THAT(res_imports, UnorderedEquals(exp_imports));
 			}
 		}
 	}
 
-	void scan_check(const std::vector<ood_idx>& ood_indices) {
+	void scan_check(const std::vector<cppm::scan_item_idx_t>& ood_indices,
+		const std::vector<cppm::scan_item_idx_t>& fail_indices = {})
+	{
+		INFO("line " << current_line);
 		scan();
-		check(ood_indices);
+		check(ood_indices, fail_indices);
 	}
 
-	void touch(const char* file_name) {
-		fs::last_write_time(tmp_path / file_name, fs::file_time_type::clock::now());
+	TempFileScanTest& set_line(int line) {
+		current_line = line;
+		return *this;
 	}
 };
 
+using vdb = std::vector<depinfo::DataBlock>;
+using vmd = std::vector<depinfo::ModuleDesc>;
+using fc = depinfo::FutureDepInfo;
+
+#define test test_.set_line(__LINE__)
+
 TEST_CASE("test1", "[scanner]") {
-	TempFileScanTest test;
+	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
 
@@ -405,13 +453,12 @@ TEST_CASE("test1", "[scanner]") {
 	)");
 	test.create_items("target2", "", { "b.cpp" });
 
-	using vdb = std::vector<depinfo::DataBlock>;
 	depinfo::DepInfo a_cpp_info = { .input = "a.cpp", .depends = vdb{ "a.h", "b.h" } };
 	depinfo::DepInfo b_cpp_info = { .input = "b.cpp", .depends = vdb{ "b.h" } };
 	depinfo::DepInfo c_cpp_info = { .input = "c.cpp" };
 	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info, b_cpp_info } });
 
-	ood_idx a { 0 }, b { 1 }, c { 2 }, b1 { 3 };
+	cppm::scan_item_idx_t a { 0 }, b { 1 }, c { 2 }, b1 { 3 };
 
 	test.scan_check({ a, b, c, b1 }); // first scan
 
@@ -453,7 +500,7 @@ TEST_CASE("test1", "[scanner]") {
 }
 
 TEST_CASE("test2 - modules", "[scanner]") {
-	TempFileScanTest test;
+	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
 
@@ -475,9 +522,6 @@ export module b;
 #include "c.h"
 	)");
 
-	using vdb = std::vector<depinfo::DataBlock>;
-	using vmd = std::vector<depinfo::ModuleDesc>;
-	using fc = depinfo::FutureDepInfo;
 	depinfo::DepInfo a_cpp_info = { .input = "a.cpp", 
 		.future_compile = fc {
 			.provide = vmd { { .logical_name = "a" } },
@@ -495,10 +539,10 @@ export module b;
 			.require = vmd { { .logical_name = "a" }, { .logical_name = "b" } }
 		}
 	};
+	cppm::scan_item_idx_t a { 0 }, b { 1 }, c { 2 };
 	test.set_expected({ .sources = { a_cpp_info, b_cpp_info, c_cpp_info } },
-		{ {},{0},{0,1} });
+		{ {},{ a },{ a, b } });
 
-	ood_idx a { 0 }, b { 1 }, c { 2 };
 
 	test.scan_check({ a, b, c }); // first scan
 
@@ -523,7 +567,7 @@ export module b;
 }
 
 TEST_CASE("test3 - header units", "[scanner]") {
-	TempFileScanTest test;
+	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
 
@@ -553,11 +597,8 @@ import a;
 #include "b.h"
 	)");
 
-	#define SCANNER_BUG
+	#define SCANNER_BUG // todo:
 
-	using vdb = std::vector<depinfo::DataBlock>;
-	using vmd = std::vector<depinfo::ModuleDesc>;
-	using fc = depinfo::FutureDepInfo;
 	depinfo::DepInfo a_h_info = { .input = "a.h",
 	#ifdef SCANNER_BUG
 		.depends = vdb{ "c.h", "d.h" },
@@ -606,15 +647,16 @@ import a;
 		#endif
 		}
 	};
+	cppm::scan_item_idx_t ah { 0 }, bh { 1 }, a { 2 }, b { 3 }, c { 4 };
+
 	test.set_expected({ .sources = { a_h_info, b_h_info, a_cpp_info, b_cpp_info, c_cpp_info } },
 	#ifdef SCANNER_BUG
-		{ {1},{},{0,1},{1},{1,2} }
+		{ { bh },{},{ ah,bh },{ bh },{ bh, a } }
 	#else
-		{ {1},{},{0},{1},{2} }
+		{ { bh },{},{ ah },{ bh },{ a } }
 	#endif
 	);
 
-	ood_idx ah { 0 }, bh { 1 }, a { 2 }, b { 3 }, c { 4 };
 
 	test.scan_check({ ah, bh, a, b, c });
 
@@ -643,6 +685,47 @@ import a;
 		test.scan_check({ ah, bh, a, b });
 	#endif
 	}
+}
+
+TEST_CASE("test4 - error handling", "[scanner]") {
+	TempFileScanTest test_;
+	SECTION("missing headers") {
+		test.create_items("target1", R"(
+> a.cpp
+#include "a.h"
+> b.cpp
+import c;
+> c.cpp
+export module c;
+		)");
+
+		depinfo::DepInfo a_info = { .input = "a.cpp", .depends = vdb{ "a.h" }, };
+		depinfo::DepInfo b_info = { .input = "b.cpp", .future_compile = fc { .require = vmd { { .logical_name = "c" } } } };
+		depinfo::DepInfo c_info = { .input = "c.cpp", .future_compile = fc { .provide = vmd { { .logical_name = "c" } } } };
+		cppm::scan_item_idx_t a { 0 }, b { 1 }, c { 2 };
+		test.set_expected({ .sources = { a_info, b_info, c_info } }, { {}, { c }, {} });
+		test.submit_previous_results = true;
+
+		test.scan_check({ a, b, c }, { a }); // the scan should fail but still return the results for b,c
+		// todo: a shouldn't really be ood here:
+		test.scan_check({ a }, { a }); // still fails but b,c are no longer out of date
+		test.touch("a.h");
+		test.scan_check({ a }); // successful scan here
+		test.scan_check({});
+		test.remove("a.h");
+		test.scan_check({ a }, { a }); // failing again
+		test.scan_check({ a }, { a });
+	}
+
+#if 0
+	SECTION("missing modules") {
+
+	}
+
+	SECTION("module cycles") {
+
+	}
+#endif
 }
 
 // todo: test item_root_dir

@@ -18,19 +18,26 @@ file_time_t file_time_t_now() {
 }
 
 file_time_t get_last_write_time(const std::filesystem::path& path) {
-	auto filetime = std::filesystem::last_write_time(path);
+	try {
+		auto filetime = std::filesystem::last_write_time(path);
 #if 0
-	// https://developercommunity.visualstudio.com/content/problem/251213/stdfilesystemfile-time-type-does-not-allow-easy-co.html
+		// https://developercommunity.visualstudio.com/content/problem/251213/stdfilesystemfile-time-type-does-not-allow-easy-co.html
 
-	FILETIME ft;
-	memcpy(&ft, &filetime, sizeof(FILETIME));
-	SYSTEMTIME  stSystemTime;
-	if (FileTimeToSystemTime(&ft, &stSystemTime)) {
-		... ?
-	}
+		FILETIME ft;
+		memcpy(&ft, &filetime, sizeof(FILETIME));
+		SYSTEMTIME  stSystemTime;
+		if (FileTimeToSystemTime(&ft, &stSystemTime)) {
+			... ?
+		}
 #endif
 
-	return time_point_to_file_time_t(filetime);
+		return time_point_to_file_time_t(filetime);
+	} catch (std::filesystem::filesystem_error&) {
+		// todo: if the file just doesn't exist anymore that's fine, just remove it from the DB
+		// report other filesystem errors
+		// note: this will be compared later to the last item scan time
+		return std::numeric_limits<file_time_t>::max();
+	}
 }
 
 } // namespace cppm

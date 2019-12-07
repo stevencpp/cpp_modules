@@ -54,3 +54,4 @@ struct ConfigPath : public ConfigString {
 	using ConfigString::ConfigString;
 	void init() override;
 };
+
