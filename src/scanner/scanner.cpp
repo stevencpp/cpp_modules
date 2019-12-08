@@ -1009,6 +1009,11 @@ struct ScannerImpl {
 		// note: the files are never removed, only the items, is that ok ?
 		// todo: how about target ids ? should they ever get removed ?
 	}
+
+	void clean_all(fs::path db_path) {
+		fs::remove(db_path / "scanner.mdb");
+		fs::remove(db_path / "scanner.mdb-lock");
+	}
 };
 
 Scanner::Scanner() : impl(std::make_unique<ScannerImpl>()) {
@@ -1062,6 +1067,12 @@ void Scanner::clean(const ConfigView & c) {
 	if (ci.targets.empty()) throw std::invalid_argument("must provide at least one target");
 
 	impl->clean(c.db_path, ci.item_root_path, ci.targets, ci.items);
+}
+
+void Scanner::clean_all(std::string_view db_path) {
+	if (db_path.empty()) throw std::invalid_argument("must provide a db path");
+
+	impl->clean_all(db_path);
 }
 
 inline bool ends_with(std::string_view str, std::string_view with) {

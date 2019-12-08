@@ -275,7 +275,11 @@ public:
  
 	vector_map<scan_item_idx_t, Result> scan(const ConfigView& config);
 
+	// clean the targets/items specified in the config's itemset
 	void clean(const ConfigView& config);
+
+	// clean everything in the db at the given path
+	void clean_all(std::string_view db_path);
 };
 
 } // namespace cppm

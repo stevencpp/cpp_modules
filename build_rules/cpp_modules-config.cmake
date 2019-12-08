@@ -62,7 +62,7 @@ function(target_cpp_modules targets)
 	endif()
 endfunction()
 
-function(target_cpp_legacy_headers target)
+function(target_cpp_header_units target)
 	set(headers ${ARGN})
 	target_sources(${target} PRIVATE ${headers})
 	

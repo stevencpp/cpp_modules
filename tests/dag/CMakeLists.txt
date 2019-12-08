@@ -28,7 +28,7 @@ add_library(C STATIC
 	C4.cpp
 )
 
-target_cpp_legacy_headers(C
+target_cpp_header_units(C
 	C5.h
 )
 
@@ -45,7 +45,7 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 	target_sources(D PRIVATE std_core.cpp)
 endif()
 
-target_cpp_legacy_headers(D
+target_cpp_header_units(D
 	D5.h
 	D6.h
 )
