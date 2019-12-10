@@ -45,11 +45,13 @@ TEST_CASE("msbuild system test", "[msbuild]") {
 	};
 	for (std::string& test : get_run_set(cfg_run_one, cfg_run_set)) {
 		full_clean_one(test);
-		params.toolset = "";
+		params.toolset = cfg_toolset;
 		run_one(test, params);
-		full_clean_one(test);
-		params.toolset = "ClangCl";
-		run_one(test, params );
+		if (cfg_toolset == "") {
+			full_clean_one(test);
+			params.toolset = "ClangCl";
+			run_one(test, params);
+		}
 	}
 }
 

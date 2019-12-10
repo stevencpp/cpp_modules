@@ -77,7 +77,8 @@ jobs:
           $CXX --version | sed 's/-.*//' >> env.lock 2>&1
           echo "$CXXFLAGS $CFLAGS $LDFLAGS" >> env.lock
           
-          export CMAKE_VERSION=3.15.5
+          echo "old cmake version: " && cmake --version
+          export CMAKE_VERSION=3.16.1
           export CMAKE_ID=cmake-$CMAKE_VERSION-Linux-x86_64
           curl -fsSL -o cmake.tar.gz "https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/$CMAKE_ID.tar.gz"
           tar -zxf cmake.tar.gz
@@ -98,6 +99,36 @@ jobs:
         cat env.lock
         
         echo "$VCPKG_HASH $VCPKG_DEPS" >> vcpkg.lock
+    
+    - name: visual studio modules cache
+      if: runner.os == 'Windows'
+      uses: actions/cache@v1
+      id: cache-vsmodules
+      with:
+        path: ${{ steps.init.outputs.vsmodules-dir }}
+        key: ${{ runner.os }}-vsmodules-${{ hashFiles('**\vsmodules.lock') }}
+        
+    - name: install visual studio modules
+      if: runner.os == 'Windows' && steps.cache-vsmodules.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        echo "dummy" # workaround for a bug in parsing the yaml file
+        # note: this should run before any other builds because they might leave 
+        # an msbuild.exe running which causes the installer to fail
+        
+        echo "update vs_installer.exe before installing components"
+        curl -fsSL -o vs_enterprise.exe "https://aka.ms/vs/16/release/vs_Enterprise.exe"
+        ./vs_enterprise.exe --update --quiet --wait
+        
+        echo "install the pre-built standard library modules and cache them, the tests use this"
+        "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart \
+          --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise" \
+          --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64 || echo failed
+        
+        if [ ! -d "${{ steps.init.outputs.vsmodules-dir }}" ]; then
+          cat /tmp/dd_*.log
+          exit 1;
+        fi
   
     - name: clang-scan-deps cache
       uses: actions/cache@v1
@@ -187,29 +218,6 @@ jobs:
         "$VCPKG_INSTALLATION_ROOT/vcpkg" upgrade --no-dry-run
         rm -rf downloads buildtrees packages
         
-    - name: visual studio modules cache
-      if: runner.os == 'Windows'
-      uses: actions/cache@v1
-      id: cache-vsmodules
-      with:
-        path: ${{ steps.init.outputs.vsmodules-dir }}
-        key: ${{ runner.os }}-vsmodules-${{ hashFiles('**\vsmodules.lock') }}
-        
-    - name: install visual studio modules
-      if: runner.os == 'Windows' && steps.cache-vsmodules.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        echo "dummy" # workaround for a bug in parsing the yaml file
-        
-        # install the pre-built standard library modules and cache them, the tests use this
-        "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vs_installer.exe" modify --quiet --norestart \
-          --installPath="C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise" \
-          --add Microsoft.VisualStudio.Component.VC.Modules.x86.x64
-        
-        if [ ! -d "${{ steps.init.outputs.vsmodules-dir }}" ]; then
-          echo failed; exit 1;
-        fi
-        
     - name: build
       shell: bash
       run: |
@@ -251,7 +259,7 @@ jobs:
           #sudo $cmake_path --install .
           
           # change the default install path for the generated self extracting script
-          STGZ_TEMPLATE=`ls ../cmake*/share/cmake*/Modules/CPack.STGZ_Header.sh.in`
+          STGZ_TEMPLATE=`ls ../cmake*/share/cmake*/Modules/Internal/CPack/CPack.STGZ_Header.sh.in`
           STGZ_TEMPLATE_TMP=$STGZ_TEMPLATE.bak
           sudo sed 's/cpack_include_subdir=\"\"/cpack_include_subdir=\"FALSE\"/' $STGZ_TEMPLATE > $STGZ_TEMPLATE_TMP
           sudo sed 's/toplevel=\"`pwd`\"/toplevel=\/usr\/local\/cpp_modules \&\& mkdir -p \/usr\/local\/cpp_modules/' $STGZ_TEMPLATE_TMP > $STGZ_TEMPLATE
@@ -269,7 +277,7 @@ jobs:
     
     - name: test
       shell: bash
-      continue-on-error: true
+      continue-on-error: false
       run: |
         source env.sh
         

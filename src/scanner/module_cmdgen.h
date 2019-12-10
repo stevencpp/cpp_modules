@@ -17,6 +17,7 @@ struct ModuleCommandGenerator
 	std::size_t references_end = 0;
 
 	enum FormatEnum {
+		Unknown,
 		MSVC,
 		ClangCl,
 		Clang,
@@ -24,10 +25,18 @@ struct ModuleCommandGenerator
 	};
 
 	struct Format {
-		FormatEnum format;
+		FormatEnum format = Unknown;
+		operator bool() { return format != Unknown; }
 		bool isClang() { return format == ClangCl || format == Clang; };
 		bool isMSVC() { return format == MSVC; }
 		bool isGCC() { return format == GCC; }
+		static Format from_string(std::string_view f) {
+			if (f == "msvc") return { MSVC };
+			else if (f == "clang") return { Clang };
+			else if (f == "clangcl") return { ClangCl };
+			else if (f == "gcc") return { GCC };
+			throw std::invalid_argument("unsupported command format " + std::string(f));
+		}
 	};
 
 	static Format detect_format(std::string_view cmd);

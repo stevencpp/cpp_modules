@@ -1,9 +1,8 @@
 #include <fstream>
-#include <filesystem>
-#include <string_view>
+#include <string>
 
-void write_file(std::string_view name, std::string_view contents) {
-	std::ofstream fout(name);
+void write_file(std::string name, std::string contents) {
+	std::ofstream fout { name };
 	fout << contents;
 }
 

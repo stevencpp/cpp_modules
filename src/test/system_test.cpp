@@ -38,6 +38,12 @@ void run_one_msbuild(const std::string& test, const run_one_params& p, const fs:
 	cppm::CmdArgs generate_cmd { "cmake -G \"{}\" -A \"{}\" ../ ", p.generator, p.arch };
 	if (p.toolset != "")
 		generate_cmd.append("-DCMAKE_GENERATOR_TOOLSET={} ", p.toolset);
+	if (p.toolset == "ClangCl") {
+		generate_cmd.append("-DCMAKE_VS_GLOBALS:STRING=\"LLVMInstallDir={}\" ", R"(c:\Program Files\LLVM\bin)");
+		generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", clang_cl_path);
+		// none of this works in 3.16, just don't do this test until it's fixed
+		return;
+	}
 	if (!clang_scan_deps_path.empty())
 		generate_cmd.append("-DCPPM_SCANNER_PATH=\"{}\" ", clang_scan_deps_path);
 	REQUIRE(0 == run_cmd(generate_cmd));
@@ -50,9 +56,9 @@ void run_one_msbuild(const std::string& test, const run_one_params& p, const fs:
 	auto log_params = fmt::format("LogFile=build.log;Verbosity={}", verbosity_long);
 	cppm::CmdArgs build_cmd { "cmake --build . --config {} --parallel -- -v:{} \"/p:{}\" -flp:{}",
 		p.configuration, p.verbosity, build_params, log_params };
-	REQUIRE(0 == run_cmd(build_cmd));
+	CHECK(0 == run_cmd(build_cmd));
 
-	REQUIRE(fs::exists(build_path / p.configuration / "A.exe"));
+	CHECK(fs::exists(build_path / p.configuration / "A.exe"));
 }
 
 std::string_view get_compiler_path(Compiler compiler) {
@@ -65,21 +71,48 @@ std::string_view get_compiler_path(Compiler compiler) {
 	throw std::runtime_error("unsupported compiler");
 }
 
+// true iff a contains b -- todo: use string_view::contains in C++20
+static bool contains(std::string_view a, std::string_view b) {
+	return a.find(b) != std::string_view::npos;
+}
+
 void run_one_ninja(const std::string& test, const run_one_params& p, const fs::path& build_path) {
 	cppm::CmdArgs generate_cmd { "cmake -G Ninja -DCMAKE_BUILD_TYPE={} ../ ", p.configuration };
 	//generate_cmd.append("-DCMAKE_VERBOSE_MAKEFILE=ON ");
 	if(!clang_scan_deps_path.empty())
 		generate_cmd.append("-DCPPM_SCANNER_PATH=\"{}\" ", clang_scan_deps_path);
 	generate_cmd.append("-DCMAKE_CXX_COMPILER:PATH=\"{}\" ", get_compiler_path(p.compiler));
+
 	REQUIRE(0 == run_cmd(generate_cmd));
 
 	cppm::CmdArgs run_ninja_cmd { "cmake --build . --parallel " };
-	REQUIRE(0 == run_cmd(run_ninja_cmd));
+	
+	bool failed = false;
+	bool found_no_work_to_do = false;
+	bool found_out_of_date = false;
+	auto ret = run_cmd_read_lines(run_ninja_cmd, [&](std::string_view line) {
+		fmt::print("> {}\n", line);
+		if (contains(line, "no work to do"))
+			found_no_work_to_do = true;
+		// if we scanned some items (> 0) then they were out of date
+		if (contains(line, "scanned") && !contains(line, "scanned 0"))
+			found_out_of_date = true;
+		return true;
+	}, [&](std::string_view err_line) {
+		fmt::print("ERR: {}\n", err_line);
+		failed = true;
+		return true;
+	});
+
+	CHECK(ret == 0);
+	CHECK(!failed);
+	CHECK(found_out_of_date == p.expect_out_of_date);
+	CHECK(found_no_work_to_do == p.expect_no_work_to_do);
 
 #ifdef _WIN32
-	REQUIRE(fs::exists(build_path / "A.exe"));
+	CHECK(fs::exists(build_path / "A.exe"));
 #else
-	REQUIRE(fs::exists(build_path / "A"));
+	CHECK(fs::exists(build_path / "A"));
 #endif
 }
 

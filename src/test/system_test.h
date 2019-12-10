@@ -34,6 +34,8 @@ struct run_one_params {
 	std::string_view configuration;
 	// ninja specific:
 	Compiler compiler;
+	bool expect_no_work_to_do = false;
+	bool expect_out_of_date = true;
 };
 void run_one(const std::string& test, const run_one_params& p = {});
 
