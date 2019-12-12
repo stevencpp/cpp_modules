@@ -27,9 +27,9 @@ main.cpp:
 import A;
 
 #ifdef __clang__
-import <B.h>;
+import "B.h";
 #else
-#include <B.h>
+#include "B.h"
 #endif
 
 int main() {
@@ -46,7 +46,6 @@ project(test LANGUAGES CXX)
 find_package(cpp_modules REQUIRED)
 
 add_executable(test main.cpp A.m.cpp)
-target_include_directories(test PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_cpp_modules(test)
 target_cpp_header_units(test B.h)
 ```

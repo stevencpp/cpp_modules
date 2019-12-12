@@ -8,7 +8,8 @@
 #include <unordered_set>
 
 #ifndef _WIN32
-#include <stdlib.h> // for mkdtemp
+#include <stdlib.h> // for mkdtemp on linux
+#include <unistd.h> // for mkdtemp on macOS
 #endif
 
 namespace fs = std::filesystem;

@@ -10,10 +10,13 @@ struct strong_int {
 	strong_int() {}
 	template<typename T, typename = std::enable_if_t< std::is_integral_v<T> > >
 	explicit strong_int(T val) : val((uint32_t)val) {}
-	explicit operator uint32_t() const {
+	explicit operator unsigned int() const {
 		return val;
 	}
-	explicit operator uint64_t() const {
+	explicit operator unsigned long() const {
+		return val;
+	}
+	explicit operator unsigned long long() const {
 		return val;
 	}
 	bool is_valid() const {

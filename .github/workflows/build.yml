@@ -16,6 +16,7 @@ jobs:
         name: [
           windows,
           linux,
+          macos,
         ]
         
         include:
@@ -27,6 +28,10 @@ jobs:
             os: ubuntu-18.04
             exe-suffix:
             package-suffix: Linux.sh
+          - name: macos
+            os: macOS-latest
+            exe-suffix:
+            pacakge-suffix: Darwin.dmg
 
     steps:
     - uses: actions/checkout@v1
@@ -61,7 +66,7 @@ jobs:
           # when saving the cache, the path needs to be in windows format (bug?) 
           ifc_dir="$(echo "$ifc_dir" | sed -e 's/^\///' -e 's/\//\\/g' -e 's/^./\0:/')"
           echo "::set-output name=vsmodules-dir::$ifc_dir"
-        else
+        elif [ "$RUNNER_OS" = "Linux" ]; then
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key 2>/dev/null | sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-9 main' -y
           sudo apt-get update -q
@@ -91,6 +96,20 @@ jobs:
           
           #sudo apt-get install -y ccache
           
+          export -p > env.sh
+        elif [ "$RUNNER_OS" = "macOS" ]; then
+          ninja --version || echo no ninja yet
+          # brew update # this is slow
+          # brew install ninja
+          curl -fsSL -o ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.9.0/ninja-mac.zip
+          unzip ninja.zip
+          mv ninja /usr/local/bin
+          ninja --version >> env.lock 2>&1
+          cmake --version >> env.lock 2>&1
+          clang --version >> env.lock 2>&1
+          export CXXFLAGS="-fsanitize=address,undefined";
+          # vckpg is not installed on macOS yet
+          export VCPKG_INSTALLATION_ROOT=`pwd`/vcpkg
           export -p > env.sh
         fi
         
@@ -131,6 +150,7 @@ jobs:
         fi
   
     - name: clang-scan-deps cache
+      if: runner.os != 'macOS'
       uses: actions/cache@v1
       id: cache-csd
       with:
@@ -138,7 +158,7 @@ jobs:
         key: ${{ runner.os }}-csd-2-${{ hashFiles('**\csd.lock') }}
     
     - name: clang-scan-deps build
-      if: steps.cache-csd.outputs.cache-hit != 'true'
+      if: runner.os != 'macOS' && steps.cache-csd.outputs.cache-hit != 'true'
       shell: bash
       run: |
         source env.sh
@@ -177,14 +197,14 @@ jobs:
         mv ../scan csd
         
     - name: clang-scan-deps upload
-      if: steps.cache-csd.outputs.cache-hit != 'true'
+      if: runner.os != 'macOS' && steps.cache-csd.outputs.cache-hit != 'true'
       uses: actions/upload-artifact@master
       with:
         name: clang-scan-deps-${{ matrix.name }}
         path: csd/clang-scan-deps${{ matrix.exe-suffix }}
     
     - name: llvm-scanner-input upload
-      if: steps.cache-csd.outputs.cache-hit != 'true'
+      if: runner.os != 'macOS' && steps.cache-csd.outputs.cache-hit != 'true'
       uses: actions/upload-artifact@master
       with:
         name: llvm-scanner-input-${{ matrix.name }}
@@ -211,6 +231,9 @@ jobs:
         else
           git clone https://github.com/microsoft/vcpkg.git
           cd vcpkg
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ./bootstrap-vcpkg.sh || cat toolsrc/build.rel/CMakeFiles/CMakeError.log
+          fi
         fi
         git reset --hard $VCPKG_GIT_HASH
         if [ "$RUNNER_OS" = "Windows"]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
@@ -253,7 +276,7 @@ jobs:
           #cmd.exe /C "cpp_modules-0.0.1-win32.exe /S"
           cmd.exe /C "cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules"
           cat CPackConfig.cmake
-        else
+        elif [ "$RUNNER_OS" = "Linux" ]; then
           #cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
           #sudo $cmake_path --install .
           
@@ -265,6 +288,9 @@ jobs:
           cpack -G STGZ
           
           sudo ./cpp_modules-0.0.1-Linux.sh --skip-license
+        elif [ "$RUNNER_OS" = "macOS" ]; then
+          #cpack -G Bundle
+          echo todo # syntax error on fi without this
         fi
         
     - name: upload package
@@ -275,6 +301,7 @@ jobs:
         path: build/cpp_modules-0.0.1-${{ matrix.package-suffix }}
     
     - name: test
+      if: runner.os != 'macOS'
       shell: bash
       continue-on-error: false
       run: |
