@@ -268,7 +268,7 @@ jobs:
         fi
         
     - name: upload package
-      if: false
+      if: true
       uses: actions/upload-artifact@master
       with:
         name: cpp-modules-${{ matrix.name }}
