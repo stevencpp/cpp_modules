@@ -22,7 +22,9 @@ enum Compiler {
 #endif
 
 std::string_view get_compiler_path(Compiler compiler);
+// todo: use reflection in C++23 to convert to/from enum names
 Compiler get_compiler_from_str(std::string_view compiler);
+std::string_view compiler_name(Compiler compiler);
 
 struct run_one_params {
 	std::string_view test_path;

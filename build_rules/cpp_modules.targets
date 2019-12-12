@@ -40,12 +40,14 @@
 	
 	<ItemGroup>
 		<!-- for header units listed via CMake !-->
-		<ClInclude Remove="$(CppM_Legacy_Headers)" />
-		<ClCompile Include="$(CppM_Legacy_Headers)">
+		<ClInclude Remove="$(CppM_Header_Units)" />
+		<ClCompile Include="$(CppM_Header_Units)">
+			<!-- B.h must not have the same ObjectFileName as B.cpp !-->
+			<ObjectFileName>$(IntDir)%(Filename)%(Extension).obj</ObjectFileName>
 			<CppM_Header_Unit>true</CppM_Header_Unit>
 		</ClCompile>
 		<!-- for header units listed via the project properties, but the following is an error !-->
-		<!--<CppM_Legacy_Headers Include="@(CLCompile)" Condition="'%(ClCompile.CppM_Header_Unit)' == 'true'" />!-->
+		<!--<CppM_Header_Units Include="@(CLCompile)" Condition="'%(ClCompile.CppM_Header_Unit)' == 'true'" />!-->
 	</ItemGroup>
 	
 	<UsingTask TaskName="CppM_CL" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
@@ -100,8 +102,7 @@
 		<ItemGroup>
 			<CppM_CL_Input_All Include="@(ClCompile)" Condition="'%(ClCompile.PrecompiledHeader)' != 'Create' and '%(ClCompile.ExcludedFromBuild)'!='true' and '%(ClCompile.CompilerIteration)' == '' and @(ClCompile) != ''">
 				<CppM_ModuleDefinitionFile>$(CppM_IntDir_FullPath)%(CLCompile.FileName)$(CppM_Mdef_Suffix)</CppM_ModuleDefinitionFile>
-				<CppM_CMI_File>$(CppM_IntDir_FullPath)%(Filename).ifc</CppM_CMI_File>
-				<CppM_ObjectFilePath>$(CppM_IntDir_FullPath)%(Filename).obj</CppM_ObjectFilePath>
+				<CppM_CMI_File>$(CppM_IntDir_FullPath)%(Filename)%(Extension).ifc</CppM_CMI_File>
 				<BuildingInIDE>$(BuildingInsideVisualStudio)</BuildingInIDE>
 				<!--<Sources>@(ClCompile)</Sources>!-->
 				<Sources>%(ClCompile.FullPath)</Sources>
@@ -158,7 +159,6 @@
 			<CppM_To_Delete_In_IntDir Include="pp.modulemap;pp_commands.json;module_map.json;build.ninja;build_rec.ninja" />
 			<CppM_To_Delete Include="@(CppM_To_Delete_In_IntDir->'$(CppM_IntDir_FullPath)%(FileName)%(Extension)')" />
 			<CppM_To_Delete Include="$(TLogLocation)pp\*;$(TLogLocation)src\*" />
-			<CppM_To_Delete Include="@(CppM_CL_Input_All->'%(ObjectFileName)%(FileName).i')" />
 			<CppM_To_Delete Include="$(CppM_CMI_Path)*$(CppM_CMI_Ext)" />
 			<CppM_To_Delete Include="@(CppM_CL_Input_All->'%(CppM_ModuleDefinitionFile)')" />
 		</ItemGroup>

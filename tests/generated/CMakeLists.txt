@@ -14,7 +14,6 @@ add_custom_command(
 add_executable(A
 	A.cpp
 	"${CMAKE_CURRENT_BINARY_DIR}/B.cpp"
-	"${CMAKE_CURRENT_BINARY_DIR}/B.h"
 	"${CMAKE_CURRENT_BINARY_DIR}/C.m.cpp"
 )
 

@@ -174,6 +174,8 @@ inline bool ends_with(std::string_view str, std::string_view with) {
 	return str.substr(str.size() - with.size(), with.size()) == with;
 }
 
+constexpr std::string_view default_cmd_suffix = "ASDFG";
+
 struct TempFileScanTest : public TempFileTest {
 private:
 	cppm::ScanItemSet item_set;
@@ -224,7 +226,8 @@ public:
 			.target_idx = target_idx,
 			.is_header_unit = ends_with(file, ".h")
 		});
-		std::string cmd = fmt::format("{} /Fo\"{}.{}.obj\"", default_command, file, item_set.targets[target_idx]);
+		std::string cmd = fmt::format("{} /Fo\"{}.{}.obj\" /D {}", 
+			default_command, file, item_set.targets[target_idx], default_cmd_suffix);
 		item_set.commands.emplace_back(std::move(cmd));
 	}
 
@@ -238,6 +241,16 @@ public:
 		});
 		for (auto& file : file_refs)
 			add_item(file, target_idx);
+	}
+
+	void set_command_suffix(cppm::scan_item_idx_t idx, std::string_view suffix) {
+		// by construction, cmd idx == item idx
+		std::string& cmd = item_set.commands[id_cast<cppm::cmd_idx_t>(idx)];
+		auto d_pos = cmd.rfind("/D ");
+		assert(d_pos != std::string::npos);
+		auto prev_suffix_pos = d_pos + 3;
+		auto prev_suffix_length = cmd.size() - prev_suffix_pos;
+		cmd.replace(prev_suffix_pos, prev_suffix_length, suffix);
 	}
 
 	void scan() {
@@ -495,7 +508,13 @@ TEST_CASE("test1", "[scanner]") {
 
 		test.scan_check({}); // no changes again
 
-		// todo: test command changed
+		test.set_command_suffix(a, "TTRTETRRE");
+		test.scan_check({ a }); // the command changed for a
+		test.set_command_suffix(b, "JFDJD");
+		test.set_command_suffix(a, default_cmd_suffix);
+		test.scan_check({ a, b });
+		test.set_command_suffix(b, default_cmd_suffix);
+		test.scan_check({ b });
 	}
 }
 
@@ -717,7 +736,7 @@ export module c;
 		test.scan_check({ a }, { a });
 	}
 
-#if 0
+#if 0 // todo:
 	SECTION("missing modules") {
 
 	}

@@ -12,7 +12,7 @@ namespace fs = std::filesystem;
 namespace msbuild {
 
 ConfigString cfg_run_one { "msbuild-run-one", "" };
-ConfigString cfg_run_set { "msbuild-run-set", "dag,concurrent" };
+ConfigString cfg_run_set { "msbuild-run-set", "dag,concurrent,generated" };
 
 ConfigString cfg_generator { "msbuild-generator", "Visual Studio 16 2019" };
 ConfigString cfg_arch { "msbuild-arch", "X64" };

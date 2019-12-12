@@ -77,34 +77,45 @@ function(target_cpp_modules targets)
 			set_property(TARGET ${target} PROPERTY VS_GLOBAL_CppM_ClangScanDepsPath "${CPPM_SCANNER_PATH}")
 
 			target_link_libraries(${target}
-				${CPPM_TARGETS_PATH}/cpp_modules.targets
+				"${CPPM_TARGETS_PATH}/cpp_modules.targets"
 			)
 		endforeach()
 	
-		add_library(_CPPM_ALL_BUILD EXCLUDE_FROM_ALL ${CPPM_TARGETS_PATH}/dummy.cpp)
+		add_library(_CPPM_ALL_BUILD EXCLUDE_FROM_ALL "${CPPM_TARGETS_PATH}/dummy.cpp")
 		set_property(TARGET _CPPM_ALL_BUILD PROPERTY EXCLUDE_FROM_DEFAULT_BUILD TRUE)
 		add_dependencies(_CPPM_ALL_BUILD ${ARGV})
-		target_link_libraries(_CPPM_ALL_BUILD ${CPPM_TARGETS_PATH}/cpp_modules.targets)
+		target_link_libraries(_CPPM_ALL_BUILD "${CPPM_TARGETS_PATH}/cpp_modules.targets")
 	endif()
 endfunction()
 
+function(cppm_list_transform_to_absolute_path files_var)
+	set(files_in "${${files_var}}")
+	set(files_out "")
+	foreach(maybe_rel_path ${files_in})
+		get_filename_component(abs_path "${maybe_rel_path}"
+			ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+		list(APPEND files_out "${abs_path}")
+	endforeach()
+	set(${files_var} "${files_out}" PARENT_SCOPE)
+endfunction()
+
 function(target_cpp_header_units target)
-	set(headers ${ARGN})
-	target_sources(${target} PRIVATE ${headers})
+	set(headers "${ARGN}")
+	target_sources(${target} PRIVATE "${headers}")
 	
 	if(CMAKE_GENERATOR MATCHES "Ninja")
 		foreach(header ${headers})
 			# the MSBuild customization already adds these to the sources
-			set_source_files_properties(${header} PROPERTIES LANGUAGE CXX)
+			set_source_files_properties("${header}" PROPERTIES LANGUAGE CXX)
 			if(NOT MSVC)
-				set_source_files_properties(${header} COMPILE_FLAGS "-xc++")
+				set_source_files_properties("${header}" COMPILE_FLAGS "-xc++")
 			endif()
 		endforeach()
 	endif()
 	
-	list(TRANSFORM headers PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+	cppm_list_transform_to_absolute_path(headers)
 	if(CMAKE_GENERATOR MATCHES "Visual Studio")
-		set_property(TARGET ${target} PROPERTY VS_GLOBAL_CppM_Legacy_Headers ${headers})
+		set_property(TARGET ${target} PROPERTY VS_GLOBAL_CppM_Header_Units "${headers}")
 	endif()
 	if(CMAKE_GENERATOR MATCHES "Ninja")
 		file(APPEND "${CMAKE_BINARY_DIR}/scanner_config.txt" "header_units ${target} ${headers}\n")

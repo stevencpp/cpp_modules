@@ -251,8 +251,7 @@ jobs:
           "/c/Program Files/CMake/bin/cpack" -G NSIS -C Debug
           
           #cmd.exe /C "cpp_modules-0.0.1-win32.exe /S"
-          cmd.exe /C "cpp_modules-0.0.1-win32.exe /S /D=D:\tmp\cpp_modules"
-          mv /d/tmp/cpp_modules "/c/Program Files"
+          cmd.exe /C "cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules"
           cat CPackConfig.cmake
         else
           #cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default

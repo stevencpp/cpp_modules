@@ -125,7 +125,8 @@ void run_one(const std::string& test, const run_one_params& p) {
 	fs::create_directory(build_path);
 	fs::current_path(build_path);
 
-	fmt::print(fmt::fg(fmt::color::yellow), "=== running {} ===\n", test);
+	fmt::print(fmt::fg(fmt::color::yellow), "=== running '{}' with {} / {} ===\n", 
+		test, (p.generator == "Ninja" ? "ninja" : "msbuild"), compiler_name(p.compiler));
 
 	if (p.generator == "Ninja") {
 		run_one_ninja(test, p, build_path);
@@ -155,6 +156,14 @@ Compiler get_compiler_from_str(std::string_view compiler) {
 	else if (compiler == "clang_cl") return Compiler::clang_cl;
 	else if (compiler == "clang") return Compiler::clang;
 	else if (compiler == "gcc") return Compiler::gcc;
+	throw std::invalid_argument(fmt::format("unsupported compiler: {}", compiler));
+}
+
+std::string_view compiler_name(Compiler compiler) {
+	if (compiler == Compiler::msvc) return "msvc";
+	else if (compiler == Compiler::clang_cl) return"clang_cl";
+	else if (compiler == Compiler::clang) return"clang";
+	else if (compiler == Compiler::gcc) return"gcc";
 	throw std::invalid_argument(fmt::format("unsupported compiler: {}", compiler));
 }
 

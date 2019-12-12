@@ -549,13 +549,15 @@ public class CppM_CL : Task
 			//cppm.Log.LogMessage(MessageImportance.High, "results for {0}:", dep_info.input);
 			var item = itemset.Get(dep_info.input);
 			item.is_ood = out_of_date;
+			bool is_header_unit = (item.GetMetadata("CppM_Header_Unit") == "true");
 			var mdef = new ModuleDefinition {
 				base_command = cppm.GetBaseCommand(item, preprocess: false),
 				obj_file = NormalizeFilePath(item.GetMetadata("ObjectFileName") + 
-					Path.GetFileNameWithoutExtension(item.path) + ".obj"),
-				importable_header = (item.GetMetadata("CppM_Header_Unit") == "true"),
+					// for header units the full path is already provided by the targets file
+					(is_header_unit ? "" : Path.GetFileNameWithoutExtension(item.path) + ".obj")),
+				importable_header = is_header_unit,
 			};
-			if(mdef.importable_header)
+			if(is_header_unit)
 				mdef.exported_module = GetImportableHeaderModuleName(item.path);
 			
 			foreach(var dep in ens(dep_info.depends)) {
