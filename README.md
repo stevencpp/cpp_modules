@@ -88,7 +88,7 @@ Prerequisites:
 * Visual Studio 2019 16.4+ with the C++ standard library modules component enabled in the installer
 * Clang 9+ for building with Clang/ClangCl, e.g a [snapshot build](https://llvm.org/builds/)
 
-Download the binary installer from ... and run `cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules`.
+Download the binary installer from [the releases page](https://github.com/stevencpp/cpp_modules/releases) and run `cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules`.
 
 ## Installing on Linux
 
@@ -97,7 +97,7 @@ Prerequisities:
 * CMake 3.15.4+
 * Clang 9+
 
-Download the binary installer from ... and run `sudo ./cpp_modules-0.0.1-Linux.sh --skip-license` which will install the files to `/usr/local/cpp_modules`. Currently it'll likely need some help to find the standard library headers, so if e.g you installed the `clang-9` Ubuntu package then:
+Download the binary installer from [the releases page](https://github.com/stevencpp/cpp_modules/releases) and run `sudo ./cpp_modules-0.0.1-Linux.sh --skip-license` which will install the files to `/usr/local/cpp_modules`. Currently it'll likely need some help to find the standard library headers, so if e.g you installed the `clang-9` Ubuntu package then:
 ```bash
 sudo mkdir -p /usr/local/cpp_modules/lib/clang/10.0.0
 sudo ln -s /usr/lib/llvm-9/lib/clang/9*/include /usr/local/cpp_modules/lib/clang/10.0.0/include
