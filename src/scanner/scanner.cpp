@@ -804,23 +804,12 @@ struct ScannerImpl {
 		return data;
 	}
 
-	bool init_module_visitor(ModuleVisitor* module_visitor,
-		span_map<scan_item_idx_t, const ScanItemView> items,
-		span_map<scan_item_idx_t, const module_id_t> exports,
-		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
-		span_map<scan_item_idx_t, std::vector<scan_item_idx_t>> scan_item_deps,
-		module_id_t max_module_id)
+	void gather_exported_module_names(ModuleVisitor* module_visitor,
+		span_map<scan_item_idx_t, const module_id_t> exports)
 	{
-		if (exports.empty())
-			return true;
-		TRACE();
-		vector_map<module_id_t, scan_item_idx_t> exported_by;
-		reordered_multi_vector_buffer<scan_item_idx_t, scan_item_idx_t> imports_item_buf;
-
-		exported_by.resize(max_module_id + 1);
-		for (auto& idx : exported_by)
-			idx.invalidate();
 		module_visitor->exports.resize(exports.size());
+
+		// todo: the allocation logic here is terrible, encapsulate it in something
 
 		std::size_t module_names_size = 0;
 		for (auto idx : exports.indices())
@@ -830,20 +819,23 @@ struct ScannerImpl {
 
 		for (auto idx : exports.indices()) {
 			if (exports[idx].is_valid()) {
-				auto& by = exported_by[exports[idx]];
-				if (by.is_valid())
-					throw std::invalid_argument(fmt::format("both {} and {} export the same module",
-						items[idx].path, items[by].path));
-				by = idx;
 				auto name = db.get_module_name(exports[idx]);
 				auto new_data = module_visitor->modules_buf.data() + module_visitor->modules_buf.size();
-				auto itr = module_visitor->modules_buf.insert(module_visitor->modules_buf.end(),
+				module_visitor->modules_buf.insert(module_visitor->modules_buf.end(),
 					name.begin(), name.end());
 				module_visitor->exports[idx] = std::string_view { new_data, name.size() };
 			}
 		}
 		assert(module_visitor->modules_buf.size() == module_names_size);
+	}
 
+	bool collate_imported_items(ModuleVisitor * module_visitor,
+		span_map<scan_item_idx_t, const ScanItemView> items,
+		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
+		span_map<module_id_t, scan_item_idx_t> exported_by,
+		span_map<scan_item_idx_t, std::vector<scan_item_idx_t>> scan_item_deps)
+	{
+		reordered_multi_vector_buffer<scan_item_idx_t, scan_item_idx_t> imports_item_buf;
 		for (auto idx : imports.indices()) {
 			imports_item_buf.new_vector(idx);
 			for (module_id_t id : imports[idx]) {
@@ -852,9 +844,9 @@ struct ScannerImpl {
 					std::string_view name = db.get_module_name(id);
 					if (name == "std.core")
 						continue;
+					// todo: maybe print all errors before returning ?
 					fmt::print(stderr, "'{}' imports '{}' which is not exported by any TU\n",
-						items[exp_idx].path, name);
-					module_visitor->missing_imports = true;
+						items[idx].path, name);
 					return false;
 				}
 				imports_item_buf.add(exp_idx);
@@ -865,6 +857,44 @@ struct ScannerImpl {
 		module_visitor->imports_item = imports_item_buf.to_vectors();
 		module_visitor->imports_item_buf = imports_item_buf.move_buffer();
 		return true;
+	}
+
+	void collate_module_deps(ModuleVisitor* module_visitor,
+		span_map<scan_item_idx_t, const ScanItemView> items,
+		span_map<scan_item_idx_t, const module_id_t> exports,
+		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
+		span_map<scan_item_idx_t, std::vector<scan_item_idx_t>> scan_item_deps,
+		module_id_t max_module_id)
+	{
+		if (exports.empty()) {
+			module_visitor->collate_success = true;
+			return;
+		}
+
+		TRACE();
+
+		vector_map<module_id_t, scan_item_idx_t> exported_by;
+		exported_by.resize(max_module_id + 1);
+		for (auto& idx : exported_by)
+			idx.invalidate();
+
+		for (auto idx : exports.indices()) {
+			if (exports[idx].is_valid()) {
+				auto& by = exported_by[exports[idx]];
+				if (by.is_valid()) {
+					fmt::print(stderr, "both {} and {} export the same module",
+						items[idx].path, items[by].path);
+					// todo: maybe print all errors before returning ?
+					return;
+				}
+				by = idx;
+			}
+		}
+
+		gather_exported_module_names(/*inout:*/module_visitor, exports);
+
+		module_visitor->collate_success = collate_imported_items(/*inout:*/module_visitor,
+			items, imports, exported_by, scan_item_deps);
 	}
 
 	void submit_up_to_date_items(tcb::span<scan_item_idx_t> utd_items, DB::item_data & item_data, 
@@ -929,7 +959,8 @@ struct ScannerImpl {
 		// and then switch to a read-write transaction (possibly reading more) only if needed ?
 		db.read_write_transaction();
 		auto item_target_ids = get_item_target_ids(items, targets);
-		auto item_data = db.get_item_data(item_target_ids, item_root_path, items); // returns new file/item ids for files/items not in the db yet
+		// note: the following also returns new file/item ids for files/items not in the db yet
+		auto item_data = db.get_item_data(item_target_ids, item_root_path, items);
 		// todo: if concurrent_targets == false, it might be more efficient to assume all files are deps ?
 		auto unique_deps = get_unique_deps(item_data.file_deps, item_data.file_id, item_data.max_file_id);
 		auto file_data = db.get_file_data(unique_deps);
@@ -950,7 +981,7 @@ struct ScannerImpl {
 		// note: the following might add new files but doesn't commit any changes yet
 		db.update_file_last_write_times(deps_to_stat, real_lwt);
 		if(module_visitor || ood_items.size() > 0)
-			db.init_stores(); // used by execute_scanner and init_module_visitor
+			db.init_stores(); // used by execute_scanner and collate_module_deps
 
 		// todo: load/store the minimized source files for clang-scan-deps from the DB
 		// todo: would this be faster with a named pipe ? or sending directly to stdin ?
@@ -964,7 +995,7 @@ struct ScannerImpl {
 			/*inout: */item_data.file_deps, item_data.item_deps, scan_item_deps, item_data.exports, item_data.imports);
 
 		if (module_visitor)
-			init_module_visitor(module_visitor, items, 
+			collate_module_deps(/*inout:*/module_visitor, items,
 				item_data.exports, item_data.imports, scan_item_deps, db.module_store.next_id - 1);
 
 		// note: the deps/modules in item_data become invalid once we start writing to the db

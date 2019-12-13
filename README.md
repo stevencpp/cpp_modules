@@ -15,7 +15,7 @@ export void foo() {
 	puts("hello ");
 }
 ```
-B.h
+B.h:
 ```c++
 #include <stdio.h>
 inline void bar() {

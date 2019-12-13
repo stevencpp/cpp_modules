@@ -165,15 +165,21 @@ struct DepInfoObserver {
 	virtual void item_finished() {}
 };
 
-// todo: refactor this, give it another name, it does much more than just visit modules
-struct ModuleVisitor {
+struct CollatedModuleInfo
+{
 	std::vector<scan_item_idx_t> imports_item_buf;
 	std::vector<char> modules_buf;
+
 	vector_map<scan_item_idx_t, std::string_view> exports;
 	vector_map<scan_item_idx_t, tcb::span<scan_item_idx_t>> imports_item;
+	bool collate_success = false;
+};
+
+// todo: refactor this
+struct ModuleVisitor : public CollatedModuleInfo 
+{
 	std::vector<scan_item_idx_t> queue;
 	std::vector<bool> is_in_queue;
-	bool missing_imports = false;
 
 	template<typename F>
 	void visit_transitive_imports(scan_item_idx_t root_idx, F&& visitor_func) {

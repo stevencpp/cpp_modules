@@ -231,6 +231,11 @@ public:
 		item_set.commands.emplace_back(std::move(cmd));
 	}
 
+	void remove_item(cppm::scan_item_idx_t idx) {
+		item_set.items.erase(item_set.items.begin() + (std::size_t)idx);
+		item_set.commands.erase(item_set.commands.begin() + (std::size_t)idx);
+	}
+
 	void create_items(std::string_view target_name, std::string_view file_def,
 		std::vector<std::string> file_refs = {})
 	{
@@ -357,7 +362,8 @@ public:
 	}
 
 	void check(const std::vector<cppm::scan_item_idx_t>& ood_indices,
-		const std::vector<cppm::scan_item_idx_t>& fail_indices = {})
+		const std::vector<cppm::scan_item_idx_t>& fail_indices = {},
+		bool expect_collate_success = true)
 	{
 		auto to_id_map = [&](auto& vec) {
 			vector_map<cppm::scan_item_idx_t, char> id_map;
@@ -417,22 +423,26 @@ public:
 			CHECK_THAT(res_requires, UnorderedEquals(exp_requires));
 
 			if (submit_previous_results) {
-				std::vector<cppm::scan_item_idx_t> res_imports;
-				for (auto imp_idx : module_visitor_result->imports_item[item_idx])
-					res_imports.push_back(imp_idx);
-				//auto& res_imports = module_visitor_result->imports_item[item_idx];
-				auto& exp_imports = expected_module_imports[(std::size_t)item_idx];
-				CHECK_THAT(res_imports, UnorderedEquals(exp_imports));
+				CHECK(module_visitor_result->collate_success == expect_collate_success);
+				if (module_visitor_result->collate_success) {
+					std::vector<cppm::scan_item_idx_t> res_imports;
+					for (auto imp_idx : module_visitor_result->imports_item[item_idx])
+						res_imports.push_back(imp_idx);
+					//auto& res_imports = module_visitor_result->imports_item[item_idx];
+					auto& exp_imports = expected_module_imports[(std::size_t)item_idx];
+					CHECK_THAT(res_imports, UnorderedEquals(exp_imports));
+				}
 			}
 		}
 	}
 
 	void scan_check(const std::vector<cppm::scan_item_idx_t>& ood_indices,
-		const std::vector<cppm::scan_item_idx_t>& fail_indices = {})
+		const std::vector<cppm::scan_item_idx_t>& fail_indices = {},
+		bool expect_collate_success = true)
 	{
 		INFO("line " << current_line);
 		scan();
-		check(ood_indices, fail_indices);
+		check(ood_indices, fail_indices, expect_collate_success);
 	}
 
 	TempFileScanTest& set_line(int line) {
@@ -708,7 +718,7 @@ import a;
 
 TEST_CASE("test4 - error handling", "[scanner]") {
 	TempFileScanTest test_;
-	SECTION("missing headers") {
+	SECTION("missing headers / modules") {
 		test.create_items("target1", R"(
 > a.cpp
 #include "a.h"
@@ -733,18 +743,39 @@ export module c;
 		test.scan_check({});
 		test.remove("a.h");
 		test.scan_check({ a }, { a }); // failing again
-		test.scan_check({ a }, { a });
-	}
 
-#if 0 // todo:
-	SECTION("missing modules") {
-
+		test.remove_item(c);
+		// b should be scanned successfully even though c is missing
+		test.scan_check({ a }, { a }, false); // but collate should fail
+		test.remove_item(b);
+		test.touch("a.h");
+		test.scan_check({ a }); // collate success without b
 	}
 
 	SECTION("module cycles") {
+		test.create_items("target1", R"(
+> a.cpp
+export module a;
+import b;
+> b.cpp
+export module b;
+import a;
+		)");
 
+		depinfo::DepInfo a_info = { .input = "a.cpp", .future_compile = fc {
+			.provide = vmd { {.logical_name = "a" } },
+			.require = vmd { {.logical_name = "b" } }
+		} };
+		depinfo::DepInfo b_info = { .input = "b.cpp", .future_compile = fc {
+			.provide = vmd { {.logical_name = "b" } },
+			.require = vmd { {.logical_name = "a" } } 
+		} };
+		cppm::scan_item_idx_t a { 0 }, b { 1 };
+		test.set_expected({ .sources = { a_info, b_info } }, { { b }, { a } });
+		test.submit_previous_results = true;
+		test.scan_check({ a, b }); // collate success here
+		// todo: neither collate nor visit can detect cycles, but ninja should
 	}
-#endif
 }
 
 // todo: test item_root_dir

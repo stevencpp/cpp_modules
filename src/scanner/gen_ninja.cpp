@@ -195,7 +195,7 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 		return 1;
 	}
 
-	if (module_visitor.missing_imports)
+	if (!module_visitor.collate_success)
 		return 1;
 
 	for (auto file : collector.all_file_deps) {
