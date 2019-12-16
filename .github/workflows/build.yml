@@ -257,13 +257,12 @@ jobs:
         fi
         
     - name: install package
+      if: startsWith(github.ref, 'refs/tags/')
       shell: bash
       run: |
         source env.sh
         cd build
         if [ "$RUNNER_OS" = "Windows" ]; then
-          #cmake --install . --config "Debug"
-          
           curl -fsSL -o nsis.exe "https://netix.dl.sourceforge.net/project/nsis/NSIS%203/3.04/nsis-3.04-setup.exe"
           cmd.exe /C "nsis.exe /S"
           
@@ -274,9 +273,6 @@ jobs:
           cmd.exe /C "cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules"
           cat CPackConfig.cmake
         elif [ "$RUNNER_OS" = "Linux" ]; then
-          #cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
-          #sudo $cmake_path --install .
-          
           # change the default install path for the generated self extracting script
           STGZ_TEMPLATE=`ls ../cmake*/share/cmake*/Modules/Internal/CPack/CPack.STGZ_Header.sh.in`
           STGZ_TEMPLATE_TMP=$STGZ_TEMPLATE.bak
@@ -289,16 +285,21 @@ jobs:
           #cpack -G Bundle
           echo todo # syntax error on fi without this
         fi
-        
-    - name: release
-      uses: softprops/action-gh-release@v1
-      if: runner.os != 'macOS' && startsWith(github.ref, 'refs/tags/')
-      with:
-        files: build/cpp_modules-0.0.1-*
-        prerelease: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: install
+      if: startsWith(github.ref, 'refs/tags/') != true
+      shell: bash
+      run: |
+        source env.sh
+        cd build
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          cmake --install . --config "Debug"
+        elif [ "$RUNNER_OS" = "Linux" ]; then
+          cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
+          sudo $cmake_path --install .
+          sudo chmod +x /usr/local/cpp_modules/bin/clang-scan-deps
+        fi
+      
     - name: test
       if: runner.os != 'macOS'
       shell: bash
@@ -331,14 +332,22 @@ jobs:
           INSTALL_PATH="/usr/local/cpp_modules"
         fi
         
-        mv csd/clang-scan-deps* "$INSTALL_PATH/bin"
-        
         build/src/test/$CONFIG_DIR/cppm_test $TESTS \
           --scanner_tool_path=build/src/scanner/$CONFIG_DIR/cppm_scanner_tool${{ matrix.exe-suffix }} \
           --ninja_fork_path="$INSTALL_PATH/bin/ninja${{ matrix.exe-suffix }}" \
           --clang_scan_deps_path="$INSTALL_PATH/bin/clang-scan-deps${{ matrix.exe-suffix }}" \
           --system_test_path=tests \
           --clang_cxx_path="$CLANG_PATH"
+          
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          #tests/iostream/benchmark.sh cl.exe
+          #tests/iostream/benchmark.sh clang++.exe
+          echo dummy # syntax error at else otherwise
+        else
+          chmod +x tests/iostream/benchmark.sh
+          #tests/iostream/benchmark.sh clang++-9
+          echo dummy
+        fi
         
         if [ "$RUNNER_OS" = "Windows" ]; then exit 0; fi
         
@@ -350,3 +359,18 @@ jobs:
           --scanner_db_path="." --scanner_item_root_path="." \
           --scanner_file_to_touch=../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp \
           --clang_scan_deps_path="$INSTALL_PATH/bin/clang-scan-deps${{ matrix.exe-suffix }}"
+          
+    - name: codecov upload
+      uses: codecov/codecov-action@v1
+      if: false && runner.os != 'macOS'
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+          
+    - name: release
+      uses: softprops/action-gh-release@v1
+      if: runner.os != 'macOS' && startsWith(github.ref, 'refs/tags/')
+      with:
+        files: build/cpp_modules-0.0.1-*
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

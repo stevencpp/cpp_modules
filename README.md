@@ -120,5 +120,5 @@ The ninja extension is currently faster and better tested than the MSBuild exten
 
 Since currently the targets that generate headers are built before scanning, those targets cannot use modules.
 
-Importing modules from external pre-built libraries is not is not yet supported.
+Importing modules from external pre-built libraries is not yet supported.
 
