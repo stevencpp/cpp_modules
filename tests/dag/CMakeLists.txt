@@ -46,8 +46,8 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 
 target_cpp_header_units(D
-	D5.h
-	D6.h
+	D5.hpp
+	D6.hxx
 )
 
 foreach(T A B C D)

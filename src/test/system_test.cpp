@@ -159,10 +159,9 @@ std::vector<std::string> get_run_set(std::string_view run_one, std::string_view 
 		ret.emplace_back(run_one);
 	} else {
 #ifdef NO_RANGE_V3
-		while (true) {
+		while (!run_set.empty()) {
 			auto [test, remaining] = split_in_two(run_set, ",");
 			ret.emplace_back(test);
-			if (remaining.empty()) break;
 			run_set = remaining;
 		}
 #else

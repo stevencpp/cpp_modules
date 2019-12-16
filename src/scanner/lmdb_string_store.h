@@ -108,6 +108,17 @@ struct string_id_store
 				db.put(id, str, mdb::flags::put::append);
 		}
 	}
+
+	// todo: this should work with a read-only txn as well
+	void print(mdb::mdb_txn<false>& txn_rw) {
+		auto db = open_db(txn_rw);
+		bool first = true;
+		for (auto&& [id, str] : db) {
+			if (first) { first = false; continue; }
+			// todo: get fmt to work with strong ids
+			fmt::print("{} - {}\n", id, str);
+		}
+	}
 };
 
 } // namespace mdb

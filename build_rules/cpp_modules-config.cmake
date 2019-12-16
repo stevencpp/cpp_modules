@@ -88,6 +88,7 @@ function(target_cpp_modules targets)
 	endif()
 endfunction()
 
+# transform all the paths in 'files_var' to absolute paths
 function(cppm_list_transform_to_absolute_path files_var)
 	set(files_in "${${files_var}}")
 	set(files_out "")
@@ -95,6 +96,29 @@ function(cppm_list_transform_to_absolute_path files_var)
 		get_filename_component(abs_path "${maybe_rel_path}"
 			ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 		list(APPEND files_out "${abs_path}")
+	endforeach()
+	set(${files_var} "${files_out}" PARENT_SCOPE)
+endfunction()
+
+# make all the paths in 'files_var' relative to 'base_path' unless they're absolute paths
+function(cppm_list_transform_rel_paths base_path files_var)
+	set(files_in "${${files_var}}")
+	set(files_out "")
+	foreach(in_path ${files_in})
+		if(IS_ABSOLUTE "${in_path}")
+			# generated header paths should be passed as absolute paths starting with the binary dir
+			# but their paths in the ninja manifest ends up being relative to the binary dir
+			if(in_path MATCHES "^${base_path}")
+				file(RELATIVE_PATH out_path "${base_path}" "${in_path}")
+			else()
+				set(out_path "${in_path}")
+			endif()
+		else()
+			get_filename_component(abs_path "${in_path}"
+				ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+			file(RELATIVE_PATH out_path "${base_path}" "${abs_path}")
+		endif()
+		list(APPEND files_out "${out_path}")
 	endforeach()
 	set(${files_var} "${files_out}" PARENT_SCOPE)
 endfunction()
@@ -111,13 +135,16 @@ function(target_cpp_header_units target)
 				set_source_files_properties("${header}" COMPILE_FLAGS "-xc++")
 			endif()
 		endforeach()
+		# ninja's path lookup expects relative paths to be relative to the binary dir
+		# related cmake issue: https://gitlab.kitware.com/cmake/cmake/issues/13894
+		cppm_list_transform_rel_paths("${CMAKE_BINARY_DIR}" headers)
+		#message(STATUS "header units: ${headers}")
+		file(APPEND "${CMAKE_BINARY_DIR}/scanner_config.txt" "header_units ${target} ${headers}\n")
+		# todo: maybe encode whether it's a header unit as bindings on the edge instead ?
 	endif()
 	
-	cppm_list_transform_to_absolute_path(headers)
 	if(CMAKE_GENERATOR MATCHES "Visual Studio")
+		cppm_list_transform_to_absolute_path(headers)
 		set_property(TARGET ${target} PROPERTY VS_GLOBAL_CppM_Header_Units "${headers}")
-	endif()
-	if(CMAKE_GENERATOR MATCHES "Ninja")
-		file(APPEND "${CMAKE_BINARY_DIR}/scanner_config.txt" "header_units ${target} ${headers}\n")
 	endif()
 endfunction()

@@ -183,7 +183,11 @@ public:
 	template<typename SpanVisitor>
 	void visit(SpanVisitor&& visitor) {
 		can_add = false;
-		if (buf.empty()) return;
+		if (buf.empty()) {
+			for (size_type i = {}; i != size(); ++i)
+				visitor(i, {});
+			return;
+		}
 		T* start = &buf.front();
 		for (std::size_t i = 0; i < vecs.size() - 1; ++i) {
 			T* end = &buf.front() + vecs[i + 1].ofs; // note: the ofs could be == buf.size()
@@ -205,11 +209,11 @@ public:
 		return ret;
 	}
 
-	void to_vectors(/*inout: */span_map<size_type, tcb::span<T>> vecs) {
-		if (vecs.size() < size())
+	void to_vectors(/*inout: */span_map<size_type, tcb::span<T>> to_vecs) {
+		if (to_vecs.size() < size())
 			throw std::logic_error("reordered_multi_vector_buffer: size mismatch");
 		visit([&](size_type idx, tcb::span<T> vec) {
-			vecs[idx] = vec;
+			to_vecs[idx] = vec;
 		});
 	}
 

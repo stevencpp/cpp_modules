@@ -2,6 +2,7 @@
 
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/format.h>
+#include <fmt/ostream.h> // for printing strong_ids
 
 #include <filesystem>
 #include <fstream>
@@ -27,7 +28,17 @@ DECL_STRONG_ID_INV(db_target_id, 0);
 DECL_STRONG_ID_INV(module_id_t, 0);
 
 using cmd_hash_t = std::size_t; // todo: probably needs a bigger hash to avoid collisions ? 
-using item_id_t = std::pair<file_id_t, db_target_id>;
+struct item_id_t {
+	file_id_t file_id;
+	db_target_id target_id;
+	bool operator==(const item_id_t& other) const noexcept { // for unordered_map
+		return file_id == other.file_id && target_id == other.target_id;
+	}
+	friend std::ostream& operator <<(std::ostream& os, const item_id_t& i) {
+		os << "(" << i.file_id << "," << i.target_id << ")";
+		return os;
+	}
+};
 
 }
 
@@ -231,6 +242,28 @@ struct DB {
 			auto target_id = targets[items[i].target_idx];
 			if(target_id.is_valid())
 				db.del(item_id_t { file_id, target_id });
+		}
+	}
+
+	void print_items() {
+		auto db = txn_rw.open_db<item_id_t, item_entry>("items");
+		for (auto&& [item_id, entry] : db) {
+			fmt::print("{} - ", item_id);
+			fmt::print("hash: {} lss: {} exp: {} ",
+				entry.cmd_hash, entry.last_successful_scan, entry.exports);
+			auto print_vec = [](std::string_view name, const auto& vec) {
+				//fmt::print("{}: [{}]", name, fmt::join(vec, ", ")); // todo:
+				if (!vec.empty()) {
+					fmt::print("{}: [{}", name, vec.front());
+					for (auto&& elem : vec.subspan(1))
+						fmt::print(",{}", elem);
+					fmt::print("] ");
+				}
+			};
+			print_vec("imp", entry.imports);
+			print_vec("fdep", entry.file_deps);
+			print_vec("idep", entry.item_deps);
+			fmt::print("\n");
 		}
 	}
 
@@ -460,7 +493,6 @@ struct ScannerImpl {
 		return cmd_hashes;
 	}
 
-
 	auto get_item_lookup(span_map<scan_item_idx_t, db_target_id> item_target_ids,
 		span_map<scan_item_idx_t, file_id_t> item_file_ids)
 	{
@@ -482,13 +514,6 @@ struct ScannerImpl {
 		vector_map<scan_item_idx_t, std::vector<scan_item_idx_t>> scan_item_deps;
 		scan_item_deps.resize(all_item_deps.size());
 
-		auto get_scan_idx = [&](item_id_t id) {
-			auto itr = item_scan_idx.find(id);
-			if (itr != item_scan_idx.end())
-				return itr->second;
-			throw std::runtime_error(fmt::format("scan_idx not found for {},{}", (uint32_t)id.first, (uint32_t)id.second));
-		};
-
 		for (auto idx : item_ood.indices()) {
 			// the deps for the out of date items will be filled in by execute_scanner
 			// and the deps for the potentially out of date items are needed for this dfs
@@ -496,8 +521,16 @@ struct ScannerImpl {
 				continue;
 			// todo: use a single allocation for these
 			scan_item_deps[idx].reserve(all_item_deps[idx].size());
-			for (auto item_id : all_item_deps[idx])
-				scan_item_deps[idx].push_back(get_scan_idx(item_id));
+			for (auto item_id : all_item_deps[idx]) {
+				auto itr = item_scan_idx.find(item_id);
+				if (itr != item_scan_idx.end()) {
+					scan_item_deps[idx].push_back(itr->second);
+				} else { // it can happen if e.g dep is no longer a header unit
+					item_ood[idx] = ood_state::item_deps_changed;
+					scan_item_deps[idx].clear();
+					break;
+				}
+			}
 		}
 
 		std::vector<std::pair<scan_item_idx_t*, scan_item_idx_t*>> item_deps_stack;
@@ -763,6 +796,7 @@ struct ScannerImpl {
 			} else if (line != "") {
 				auto file_id = db.try_add_file(line);
 				if(file_id != item_file_ids[current_item_idx]) {
+					//fmt::print("{} includes '{}' - id {}\n", current_item_idx, line, file_id);
 					// todo: this doesn't differentiate between included/imported header units
 					// so instead the scanner needs to tell us that it was imported
 					auto handle_header_unit = [&] {
@@ -914,7 +948,7 @@ struct ScannerImpl {
 			for (auto module_id : item_data.imports[i])
 				observer->import_module(module_names[module_id]);
 			for (auto item_id : item_data.item_deps[i])
-				observer->import_header(file_paths[item_id.first]);
+				observer->import_header(file_paths[item_id.file_id]);
 			observer->item_finished();
 		}
 	}
@@ -1045,6 +1079,19 @@ struct ScannerImpl {
 		fs::remove(db_path / "scanner.mdb");
 		fs::remove(db_path / "scanner.mdb-lock");
 	}
+
+	void print_db(std::string_view db_path) {
+		db.open(db_path, "scanner.mdb");
+		db.read_write_transaction();
+		fmt::print("== targets ==\n");
+		db.target_store.print(db.txn_rw);
+		fmt::print("== paths ==\n");
+		db.path_store.print(db.txn_rw);
+		fmt::print("== modules ==\n");
+		db.module_store.print(db.txn_rw);
+		fmt::print("== items ==\n");
+		db.print_items();
+	}
 };
 
 Scanner::Scanner() : impl(std::make_unique<ScannerImpl>()) {
@@ -1161,6 +1208,11 @@ ScanItemSet scan_item_set_from_comp_db(std::string_view comp_db_path, std::strin
 	}
 	item_set.commands_contain_item_path = true;
 	return item_set;
+}
+
+void Scanner::print_db(std::string_view db_path) {
+	if (db_path.empty()) throw std::invalid_argument("must provide a db path");
+	impl->print_db(db_path);
 }
 
 } // namespace cppm

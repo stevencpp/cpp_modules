@@ -286,6 +286,9 @@ public:
 
 	// clean everything in the db at the given path
 	void clean_all(std::string_view db_path);
+
+	// print everything in the db at the given path, for debugging
+	void print_db(std::string_view db_path);
 };
 
 } // namespace cppm

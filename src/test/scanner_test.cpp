@@ -199,6 +199,7 @@ public:
 
 	void set_expected(depinfo::DepFormat expected, std::vector<std::vector<cppm::scan_item_idx_t>> expected_module_imports = {}) {
 		init_optionals(expected);
+		all_expected.clear();
 		// todo: this assumes expected.sources is ordered the same as item_set.items
 		for (auto& depinfo : expected.sources)
 			all_expected.push_back(std::move(depinfo));
@@ -457,7 +458,7 @@ using fc = depinfo::FutureDepInfo;
 
 #define test test_.set_line(__LINE__)
 
-TEST_CASE("test1", "[scanner]") {
+TEST_CASE("scanner", "[scanner]") {
 	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
@@ -528,7 +529,7 @@ TEST_CASE("test1", "[scanner]") {
 	}
 }
 
-TEST_CASE("test2 - modules", "[scanner]") {
+TEST_CASE("scanner - modules", "[scanner]") {
 	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
@@ -595,7 +596,7 @@ export module b;
 	}
 }
 
-TEST_CASE("test3 - header units", "[scanner]") {
+TEST_CASE("scanner - header units", "[scanner]") {
 	TempFileScanTest test_;
 
 	test.scan_check({}); // nothing to scan
@@ -686,7 +687,6 @@ import a;
 	#endif
 	);
 
-
 	test.scan_check({ ah, bh, a, b, c });
 
 	for (bool submit_previous_results : { false, true })
@@ -716,7 +716,44 @@ import a;
 	}
 }
 
-TEST_CASE("test4 - error handling", "[scanner]") {
+TEST_CASE("scanner - removing header units", "[scanner]") {
+	TempFileScanTest test_;
+
+	test.create_items("target1", R"(
+> a.cpp
+#ifndef DO_INCLUDE
+  import "a.h";
+#else
+  #include "a.h"
+#endif
+> a.h
+	)");
+
+	depinfo::DepInfo a_info = { .input = "a.cpp", .future_compile = fc { .require = vmd { {.source_path = "a.h" } }	} };
+	depinfo::DepInfo a_h_info = { .input = "a.h" };
+	cppm::scan_item_idx_t a { 0 }, a_h { 1 };
+	test.set_expected({ .sources = { a_info, a_h_info } }, { { a_h }, {} });
+	test.submit_previous_results = true;
+
+	test.scan_check({ a, a_h });
+
+	test.remove_item(a_h);
+
+#ifdef SCANNER_BUG
+	// it'll think the import is an include now and succeed
+	depinfo::DepInfo a_info_bug = { .input = "a.cpp", .depends = vdb{ "a.h" } };
+	test.set_expected({ .sources = { a_info_bug, a_h_info } });
+	test.scan_check({ a });
+#else
+	test.scan_check({ a }, { a }); // scanning a should fail because a.h is not importable
+	test.set_command_suffix(a, "DO_INCLUDE"); // make a include a.h instead
+	test.scan_check({ a }); // now it should succeed
+#endif
+
+	test.scan_check({});
+}
+
+TEST_CASE("scanner - error handling", "[scanner]") {
 	TempFileScanTest test_;
 	SECTION("missing headers / modules") {
 		test.create_items("target1", R"(

@@ -41,6 +41,9 @@ struct strong_int {
 	id operator+(uint32_t v) const { return id { val + v }; } \
 	id operator-(uint32_t v) const { return id { val - v }; } \
 	id operator+(const id& i) const { return id { val + i.val }; } \
+	friend std::ostream& operator <<(std::ostream& os, const id& i) { \
+		os << (uint32_t)i; return os; \
+	} \
 };
 
 #define DECL_STRONG_ID(id) DECL_STRONG_ID_INV(id, std::numeric_limits<uint32_t>::max())

@@ -164,7 +164,16 @@ struct path_store {
 				component_size = 0;
 				++in;
 			} else {
+			#ifdef _WIN32
+				// note: ninja doesn't do this, so things should usually work without it
+				// but e.g the scanner can return paths with a lower/upper case
+				// drive letter depending on the environment variables
+				// todo: maybe fix the scanner instead, or only toupper the drive letter ?
+				// todo: unicode ?
+				*out++ = toupper(*in++);
+			#else
 				*out++ = *in++;
+			#endif
 				++component_size;
 			}
 		}
@@ -214,8 +223,12 @@ struct path_store {
 		return itr->second;
 	}
 
+	auto open_paths_db(mdb::mdb_txn<false>& txn_rw) {
+		return txn_rw.open_db<uint32_t, std::string_view>("paths");
+	}
+
 	void commit_path_changes(mdb::mdb_txn<false>& txn_rw) {
-		auto db = txn_rw.open_db<uint32_t, std::string_view>("paths");
+		auto db = open_paths_db(txn_rw);
 
 		if (id_to_normal_path_ref.empty())
 			return;
@@ -239,7 +252,7 @@ struct path_store {
 	}
 
 	void read_paths(mdb::mdb_txn<false>& txn_rw, std::string_view item_root_path) {
-		auto db = txn_rw.open_db<uint32_t, std::string_view>("paths");
+		auto db = open_paths_db(txn_rw);
 
 		normal_paths.clear();
 		id_to_normal_path_ref.clear();
@@ -284,10 +297,14 @@ struct path_store {
 		return normal_paths.get_alloc(id_to_normal_path_ref[file_id]);
 	}
 
+	auto open_file_data_db(mdb::mdb_txn<false>& txn_rw) {
+		return txn_rw.open_db<file_id_t, file_entry>("file_data");
+	}
+
 	// note: this doesn't work if called after update_file_data
 	template<typename idx_t, typename F>
 	void get_file_data(mdb::mdb_txn<false>& txn_rw, const vector_map<idx_t, file_id_t>& files, F&& data_func) {
-		auto db = txn_rw.open_db<file_id_t, file_entry>("file_data");
+		auto db = open_file_data_db(txn_rw);
 
 		for (auto idx : files.indices()) {
 			auto file_id = files[idx];
@@ -313,7 +330,7 @@ struct path_store {
 	}
 
 	void commit_file_data_changes(mdb::mdb_txn<false>& txn_rw) {
-		auto db = txn_rw.open_db<file_id_t, file_entry>("file_data");
+		auto db = open_file_data_db(txn_rw);
 
 		for (auto& [file_id, entry] : new_file_data)
 			db.put(file_id, entry);
@@ -322,6 +339,25 @@ struct path_store {
 	void commit_changes(mdb::mdb_txn<false>& txn_rw) {
 		commit_path_changes(txn_rw);
 		commit_file_data_changes(txn_rw);
+	}
+
+	void print_paths(mdb::mdb_txn<false>& txn_rw) {
+		read_paths(txn_rw, "");
+		for (auto id = file_id_t { 1 }; id < id_to_normal_path_ref.size(); ++id) {
+			auto path = normal_paths.get_alloc(id_to_normal_path_ref[id]);
+			fmt::print("{} - {}\n", id, path);
+		}
+	}
+
+	void print_file_data(mdb::mdb_txn<false>& txn_rw) {
+		auto db = open_file_data_db(txn_rw);
+		// todo:
+	}
+
+	// todo: this should work with a read-only txn as well
+	void print(mdb::mdb_txn<false>& txn_rw) {
+		print_paths(txn_rw);
+		print_file_data(txn_rw);
 	}
 };
 

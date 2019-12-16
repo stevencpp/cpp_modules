@@ -56,13 +56,13 @@ export CXX=clang++-9; export CC=clang-9;
 export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
 mkdir build && cd build
 cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug ../
-cmake --build . --parallel
+cmake --build .
 ```
 * with ninja / msvc (in a Developer Command Prompt or after running vcvarsall.bat)
 ``` bash
 mkdir build && cd build
 cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug ../
-cmake --build . --parallel
+cmake --build .
 ```
 * with msbuild / msvc (in a Developer Command Prompt or after running vcvarsall.bat)
 ```bash
@@ -75,7 +75,7 @@ cmake --build . --parallel --config Debug
 mkdir build && cd build
 set PATH=%PATH%;C:\Program Files\LLVM\bin
 cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang-cl.exe ../
-cmake --build . --parallel
+cmake --build .
 ```
 See `/tests/` for examples with more modules, header units, generated headers/sources.
 
@@ -119,3 +119,6 @@ At the moment clang-scan-deps only really supports clang, the same version that 
 The ninja extension is currently faster and better tested than the MSBuild extension.
 
 Since currently the targets that generate headers are built before scanning, those targets cannot use modules.
+
+Importing modules from external pre-built libraries is not is not yet supported.
+
