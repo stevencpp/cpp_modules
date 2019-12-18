@@ -123,7 +123,6 @@ TEST_CASE("ninja generator system test", "[ninja]") {
 
 	for (std::string& test : get_run_set("", ninja_run_set)) {
 		full_clean_one(test);
-		bool verbose_scan = false;
 		run_one(test, { .generator = "Ninja", .compiler = compiler });
 		run_one(test, { .generator = "Ninja", .compiler = compiler,
 			.expect_no_work_to_do = true, .expect_out_of_date = false });

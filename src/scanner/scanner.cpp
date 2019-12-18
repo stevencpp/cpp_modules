@@ -962,7 +962,7 @@ struct ScannerImpl {
 			// todo: currently, if the scan fails then we don't update the item
 			// so it never gets saved in failed state
 			// and so if it's up to date then it must've succeeded last time
-			// but maybe we should should save the errors ?
+			// but maybe we should save the errors ?
 			bool success = (item_ood[idx] == ood_state::up_to_date || got_result[idx]);
 			ret.push_back({ item_ood[idx],
 				success ? scan_state::success : scan_state::failed });
@@ -970,7 +970,6 @@ struct ScannerImpl {
 		return ret;
 	}
 
-	// note: all of the input paths are required to be normalized already
 	auto scan(Scanner::Type tool_type, std::string_view tool_path,
 		std::string_view db_path, std::string_view int_dir, std::string_view item_root_path,
 		bool commands_contain_item_path, span_map<cmd_idx_t, std::string_view> commands,
@@ -1123,7 +1122,7 @@ vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc
 			throw std::invalid_argument(fmt::format("target_idx {} for {} is out of range [0..{}-1]",
 				(uint32_t)item.target_idx, item.path, (uint32_t)c.item_set.targets.size()));
 		if (item.command_idx >= c.item_set.commands.size())
-			throw std::invalid_argument(fmt::format("target_idx {} for {} is out of range [0..{}-1]",
+			throw std::invalid_argument(fmt::format("command_idx {} for {} is out of range [0..{}-1]",
 				(uint32_t)item.command_idx, item.path, (uint32_t)c.item_set.commands.size()));
 	}
 

@@ -52,29 +52,28 @@ target_cpp_header_units(test B.h)
 how to build it (after installing the cpp_modules CMake extension):
 * with ninja / clang-9 on Ubuntu
 ```bash
-export CXX=clang++-9; export CC=clang-9;
-export CXXFLAGS="-stdlib=libc++"; export LDFLAGS="-stdlib=libc++ -fuse-ld=lld";
+export CXX=clang++-9;
 mkdir build && cd build
-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug ../
+cmake -G Ninja ..
 cmake --build .
 ```
 * with ninja / msvc (in a Developer Command Prompt or after running vcvarsall.bat)
 ``` bash
 mkdir build && cd build
-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug ../
+cmake -G Ninja ..
 cmake --build .
 ```
 * with msbuild / msvc (in a Developer Command Prompt or after running vcvarsall.bat)
 ```bash
 mkdir build && cd build
-cmake -G "Visual Studio 16 2019" -A "X64" ../
+cmake -G "Visual Studio 16 2019" -A "X64" ..
 cmake --build . --parallel --config Debug
 ```
 * with ninja / clang-cl (in a Developer Command Prompt or after running vcvarsall.bat)
 ```bash
 mkdir build && cd build
 set PATH=%PATH%;C:\Program Files\LLVM\bin
-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang-cl.exe ../
+cmake -G Ninja -DCMAKE_CXX_COMPILER=clang-cl.exe ..
 cmake --build .
 ```
 See `/tests/` for examples with more modules, header units, generated headers/sources.
