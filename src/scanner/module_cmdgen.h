@@ -27,7 +27,8 @@ struct ModuleCommandGenerator
 	struct Format {
 		FormatEnum format = Unknown;
 		operator bool() { return format != Unknown; }
-		bool isClang() { return format == ClangCl || format == Clang; };
+		bool isClangCl() { return format == ClangCl;  }
+		bool isClang() { return isClangCl() || format == Clang; };
 		bool isMSVC() { return format == MSVC; }
 		bool isGCC() { return format == GCC; }
 		static Format from_string(std::string_view f) {

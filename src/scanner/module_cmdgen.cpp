@@ -54,6 +54,14 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 
 		// todo: header unit flags ?
 	} else if(format.isClang()) {
+		if (has_import)
+			if(format.isClangCl())
+				// clang-cl doesn't support gcc compatible driver flags, it needs CC1 flags
+				// todo: there doesn't seem to be a CC1 equivalent of -fno-implicit-module-maps ?
+				fmt::format_to(cmd_buf, " -Xclang -fno-implicit-modules");
+			else
+				fmt::format_to(cmd_buf, " -fno-implicit-modules -fno-implicit-module-maps");
+
 		module_visitor.visit_transitive_imports(idx, [&](scan_item_idx_t imp_idx) {
 			if(!module_visitor.exports[imp_idx].empty())
 				fmt::format_to(cmd_buf, " -Xclang -fmodule-file={}=\"{}\"", 

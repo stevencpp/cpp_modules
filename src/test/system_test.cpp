@@ -1,6 +1,7 @@
 #include "system_test.h"
 
 #include <filesystem>
+#include <fstream>
 #include <catch2/catch.hpp>
 #pragma warning(disable:4275) // non dll-interface class 'std::runtime_error' used as base for dll-interface class 'fmt::v6::format_error'
 #include <fmt/color.h>
@@ -75,6 +76,20 @@ std::string_view get_compiler_path(Compiler compiler) {
 	throw std::runtime_error("unsupported compiler");
 }
 
+auto get_test_path(std::string_view test_path, std::string_view test) {
+	auto one_test_path = fs::path {
+		test_path.empty() ? cfg_test_path.sv() : test_path
+	} / test;
+	REQUIRE(fs::exists(one_test_path));
+	return one_test_path;
+}
+
+void touch(std::string_view test_path, std::string_view test, std::string_view source_file)
+{
+	auto src_path = get_test_path(test_path, test) / source_file;
+	fs::last_write_time(src_path, fs::file_time_type::clock::now());
+}
+
 // true iff a contains b -- todo: use string_view::contains in C++20
 static bool contains(std::string_view a, std::string_view b) {
 	return a.find(b) != std::string_view::npos;
@@ -89,7 +104,17 @@ void run_one_ninja(const std::string& test, const run_one_params& p, const fs::p
 
 	REQUIRE(0 == run_cmd(generate_cmd));
 
+	if (p.verbose_scan) {
+		std::ofstream fout(build_path / "scanner_config.txt", std::ios::app);
+		fout << "verbose_scan\n";
+	}
+
 	cppm::CmdArgs run_ninja_cmd { "cmake --build . --parallel " };
+	if (!p.targets.empty()) {
+		run_ninja_cmd.append("-t ");
+		for (auto target : p.targets)
+			run_ninja_cmd.append("{} ", target);
+	}
 	
 	bool failed = false;
 	bool found_no_work_to_do = false;
@@ -121,10 +146,7 @@ void run_one_ninja(const std::string& test, const run_one_params& p, const fs::p
 }
 
 void run_one(const std::string& test, const run_one_params& p) {
-	auto test_path = fs::path {
-		p.test_path.empty() ? cfg_test_path.sv() : p.test_path
-	} / test;
-	REQUIRE(fs::exists(test_path));
+	auto test_path = get_test_path(p.test_path, test);
 	auto build_path = test_path / "build";
 	fs::create_directory(build_path);
 	fs::current_path(build_path);
@@ -186,6 +208,15 @@ std::string_view compiler_name(Compiler compiler) {
 	else if (compiler == Compiler::clang) return"clang";
 	else if (compiler == Compiler::gcc) return"gcc";
 	throw std::invalid_argument(fmt::format("unsupported compiler: {}", compiler));
+}
+
+std::string get_ninja_target(std::string_view cmake_target, std::string_view source_file)
+{
+#ifdef _WIN32
+	return fmt::format("CMakeFiles/{}.dir/{}.obj", cmake_target, source_file);
+#else
+	return fmt::format("CMakeFiles/{}.dir/{}.o", cmake_target, source_file);
+#endif
 }
 
 } // namespace system_test

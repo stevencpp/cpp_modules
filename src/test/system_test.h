@@ -30,6 +30,8 @@ struct run_one_params {
 	std::string_view test_path;
 	std::string_view generator;
 	std::string_view arch;
+	std::vector<std::string_view> targets;
+	bool verbose_scan = false;
 	// msbuild specific:
 	std::string_view toolset;
 	std::string_view verbosity;
@@ -40,6 +42,10 @@ struct run_one_params {
 	bool expect_out_of_date = true;
 };
 void run_one(const std::string& test, const run_one_params& p = {});
+
+void touch(std::string_view test_path, std::string_view test, std::string_view source_file);
+
+std::string get_ninja_target(std::string_view cmake_target, std::string_view source_file);
 
 std::vector<std::string> get_run_set(std::string_view run_one, std::string_view run_set);
 

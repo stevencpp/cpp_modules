@@ -45,7 +45,7 @@ if(WIN32)
 endif()
 
 install(FILES ../build_rules/cpp_modules-config.cmake DESTINATION cmake)
-install(FILES "${CPPM_SCANNER_PATH}" DESTINATION bin)
+install(PROGRAMS "${CPPM_SCANNER_PATH}" DESTINATION bin)
 
 add_subdirectory(utils)
 add_subdirectory(scanner)

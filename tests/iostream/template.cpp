@@ -1,10 +1,8 @@
 #ifndef USE_PCH
-	#ifdef USE_MODULES
-		#ifdef USE_HEADER_UNITS
-			import <iostream>;
-		#else
-			import iostream;
-		#endif
+	#ifdef USE_HEADER_UNITS
+		import <iostream>;
+	#elif defined(USE_MODULES)
+		import iostream;
 	#else
 		#include <iostream>
 	#endif

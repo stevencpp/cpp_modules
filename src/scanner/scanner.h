@@ -21,14 +21,18 @@ struct ScanItemBase {
 	cmd_idx_t command_idx = {};
 	target_idx_t target_idx = {};
 	bool is_header_unit = false;
+	// if the item is not selected then it might not be scanned, 
+	// even if it's out of date, unless it's a dependency of a selected item
+	bool is_selected = true;
 
 	template<typename other_string_t>
 	static ScanItemBase<string_t> from(const ScanItemBase<other_string_t> & item) {
-		return { item.path, item.command_idx, item.target_idx, item.is_header_unit };
+		return { item.path, item.command_idx, item.target_idx, 
+			item.is_header_unit, item.is_selected };
 	}
 
 	explicit operator ScanItemBase<std::string_view>() const {
-		return { path, command_idx, target_idx, is_header_unit };
+		return { path, command_idx, target_idx, is_header_unit, is_selected };
 	}
 };
 

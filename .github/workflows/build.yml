@@ -297,7 +297,6 @@ jobs:
         elif [ "$RUNNER_OS" = "Linux" ]; then
           cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
           sudo $cmake_path --install .
-          sudo chmod +x /usr/local/cpp_modules/bin/clang-scan-deps
         fi
       
     - name: test
@@ -310,6 +309,7 @@ jobs:
         if [ ! -d llvm-build ]; then
           if [ "$RUNNER_OS" != "Windows" ]; then
             mv csd/scan/* .
+            export CXXFLAGS="-cxx-isystem /usr/lib/llvm-9/include/c++/v1 $CXXFLAGS"
             sudo mkdir -p /usr/local/cpp_modules/lib/clang/10.0.0
             sudo ln -s /usr/lib/llvm-9/lib/clang/9*/include /usr/local/cpp_modules/lib/clang/10.0.0/include
             rm -rf llvm-project/libcxx/include
