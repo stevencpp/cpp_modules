@@ -48,18 +48,21 @@ jobs:
         # so we save the build environment to env.sh and restore it later
         # clang-scan-deps and the tests need llvm and ninja to build
         if [ "$RUNNER_OS" = "Windows" ]; then
-          curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win64.exe
-          7z x LLVM9.exe -y -o"C:/Program Files/LLVM"
-          export PATH="/c/Program Files/LLVM/bin:$PATH"
+          # note: the MSBuild extension DLL needs to be 32-bit
+          # and so for the ninja build the environment needs to be x86
+          curl -fsSL -o LLVM9.exe https://releases.llvm.org/9.0.0/LLVM-9.0.0-win32.exe
+          7z x LLVM9.exe -y -o"C:/Program Files (x86)/LLVM"
+          export PATH="/c/Program Files (x86)/LLVM/bin:$PATH"
           clang-cl --version
+          export CXX=cl && export CC=cl
           
           # run vcvarsall (for ninja to work) and save the environment to env.sh:
-          .github/workflows/vs_env.bat x64
+          .github/workflows/vs_env.bat x86
           source env.sh
           cl >> env.lock 2>&1
           
           cl >> vsmodules.lock 2>&1
-          ifc_dir="$(dirname "`which cl`")/../../../ifc/x64"
+          ifc_dir="$(dirname "`which cl`")/../../../ifc/x86"
           # when saving the cache, the path needs to be in windows format (bug?) 
           ifc_dir="$(echo "$ifc_dir" | sed -e 's/^\///' -e 's/\//\\/g' -e 's/^./\0:/')"
           echo "::set-output name=vsmodules-dir::$ifc_dir"
@@ -175,7 +178,8 @@ jobs:
         
         cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ../llvm-project/llvm \
           -DLLVM_ENABLE_PROJECTS='clang;clang-tools-extra;libcxx;libcxxabi;libunwind;compiler-rt;lld' \
-          -DLLVM_ENABLE_MODULES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE $CMAKE_LINKER
+          -DLLVM_ENABLE_MODULES=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE $CMAKE_LINKER \
+          -DLLVM_STATIC_LINK_CXX_STDLIB=TRUE
         ninja clang-scan-deps${{ matrix.exe-suffix }}
         cp bin/clang-scan-deps* ../csd
 
@@ -233,7 +237,7 @@ jobs:
           fi
         fi
         git reset --hard $VCPKG_GIT_HASH
-        if [ "$RUNNER_OS" = "Windows"]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
         "$VCPKG_INSTALLATION_ROOT/vcpkg" install $VCPKG_TRIPLET $VCPKG_DEPS
         "$VCPKG_INSTALLATION_ROOT/vcpkg" upgrade --no-dry-run
         rm -rf downloads buildtrees packages
@@ -242,19 +246,16 @@ jobs:
       shell: bash
       run: |
         source env.sh
-        mkdir build
-        cd build
-        export VCPKG_ARG=-DCMAKE_TOOLCHAIN_FILE="../vcpkg/scripts/buildsystems/vcpkg.cmake"
-        export SCANNER_ARG=-DCPPM_SCANNER_PATH=../csd/clang-scan-deps${{ matrix.exe-suffix }}
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          # the dll that is loaded by the msbuild task needs to be Win32
-          cmake $VCPKG_ARG -G "Visual Studio 16 2019" -A "Win32" $SCANNER_ARG ..
-          cmake --build . --config "Debug" --parallel
-        else
-          cmake $VCPKG_ARG -G "Ninja" -DCMAKE_BUILD_TYPE=Debug $SCANNER_ARG ..
-          #  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build . --parallel
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          mkdir -p csd # tempfix to allow building on macOS until we build the scanner 
+          touch csd/clang-scan-deps
         fi
+        mkdir build && cd build
+        cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug .. \
+          -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake \
+          -DCPPM_SCANNER_PATH=../csd/clang-scan-deps${{ matrix.exe-suffix }}
+        #  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        cmake --build . --parallel
         
     - name: install package
       # creating the package can take a while so do this only when we've pushed some tags for a release
@@ -268,7 +269,7 @@ jobs:
           cmd.exe /C "nsis.exe /S"
           
           # chocolatey also has a tool named "cpack"
-          "/c/Program Files/CMake/bin/cpack" -G NSIS -C Debug
+          "/c/Program Files/CMake/bin/cpack" -G NSIS
           
           #cmd.exe /C "cpp_modules-0.0.1-win32.exe /S"
           cmd.exe /C "cpp_modules-0.0.1-win32.exe /S /D=C:\Program Files\cpp_modules"
@@ -294,7 +295,7 @@ jobs:
         source env.sh
         cd build
         if [ "$RUNNER_OS" = "Windows" ]; then
-          cmake --install . --config "Debug"
+          cmake --install .
         elif [ "$RUNNER_OS" = "Linux" ]; then
           cmake_path=`which cmake` # sudo changes the path and we have cmake 3.12 installed by default
           sudo $cmake_path --install .
@@ -324,21 +325,21 @@ jobs:
         TESTS="[lmdb],[scanner],[gen_ninja],[ninja]"
         if [ "$RUNNER_OS" = "Windows" ]; then
           TESTS="$TESTS,[msbuild]"
-          CONFIG_DIR="Debug"
           CLANG_PATH="`which clang++.exe`"
+          CLANG_CL_PATH="`which clang-cl.exe`"
           INSTALL_PATH="$PROGRAMFILES/cpp_modules"
         else
-          CONFIG_DIR=
           CLANG_PATH="`which clang++-9`"
+          CLANG_CL_PATH="dummy" # catch2 error without this
           INSTALL_PATH="/usr/local/cpp_modules"
         fi
         
-        build/src/test/$CONFIG_DIR/cppm_test $TESTS \
-          --scanner_tool_path=build/src/scanner/$CONFIG_DIR/cppm_scanner_tool${{ matrix.exe-suffix }} \
+        build/src/test/cppm_test $TESTS \
+          --scanner_tool_path=build/src/scanner/cppm_scanner_tool${{ matrix.exe-suffix }} \
           --ninja_fork_path="$INSTALL_PATH/bin/ninja${{ matrix.exe-suffix }}" \
           --clang_scan_deps_path="$INSTALL_PATH/bin/clang-scan-deps${{ matrix.exe-suffix }}" \
           --system_test_path=tests \
-          --clang_cxx_path="$CLANG_PATH"
+          --clang_cxx_path="$CLANG_PATH" --clang_cl_path="$CLANG_CL_PATH"
           
         if [ "$RUNNER_OS" = "Windows" ]; then
           #tests/iostream/benchmark.sh cl.exe
@@ -355,7 +356,7 @@ jobs:
         cd llvm-build
         mkdir -p tools/clang/tools/extra/clangd/fuzzer #workaround for an include bug
         mkdir -p tools/clang/tools/extra/clangd/tool #same
-        ../build/src/test/$CONFIG_DIR/cppm_test [scanner_comp_db] \
+        ../build/src/test/cppm_test [scanner_comp_db] \
           --scanner_comp_db=compile_commands.json \
           --scanner_db_path="." --scanner_item_root_path="." \
           --scanner_file_to_touch=../llvm-project/clang/lib/CodeGen/ObjectFilePCHContainerOperations.cpp \

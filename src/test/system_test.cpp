@@ -32,7 +32,7 @@ void full_clean_one(const std::string& test)
 	for (auto file : fs::directory_iterator { build_path })
 		if (file.is_directory() && file.path().extension() == ".dir")
 			fs::remove_all(file);
-	for (auto dir : { "Debug", "intermediate", "x64", "CMakeFiles" })
+	for (auto dir : { "Debug", "intermediate", "Win32", "x64", "CMakeFiles" })
 		fs::remove_all(build_path / dir);
 	for (auto file : { "CMakeCache.txt", "build.ninja", ".ninja_log", ".ninja_deps",
 		"scanner.mdb", "scanner.mdb-lock" })

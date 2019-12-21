@@ -15,7 +15,7 @@ ConfigString cfg_run_one { "msbuild-run-one", "" };
 ConfigString cfg_run_set { "msbuild-run-set", "dag,concurrent,generated" };
 
 ConfigString cfg_generator { "msbuild-generator", "Visual Studio 16 2019" };
-ConfigString cfg_arch { "msbuild-arch", "X64" };
+ConfigString cfg_arch { "msbuild-arch", "Win32" };
 ConfigString cfg_verbosity { "msbuild-verbosity", "m", "m for mininmal, d for diagnostic" };
 ConfigString cfg_configuration { "msbuild-configuration", "Debug" };
 ConfigString cfg_toolset { "msbuild-toolset", "" };

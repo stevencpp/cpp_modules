@@ -46,6 +46,7 @@ project(test LANGUAGES CXX)
 find_package(cpp_modules REQUIRED)
 
 add_executable(test main.cpp A.m.cpp)
+
 target_cpp_modules(test)
 target_cpp_header_units(test B.h)
 ```
@@ -95,10 +96,27 @@ Prerequisities:
 * CMake 3.15.4+
 * Clang 9+
 
-Download the binary installer from [the releases page](https://github.com/stevencpp/cpp_modules/releases) and run `sudo ./cpp_modules-0.0.1-Linux.sh --skip-license` which will install the files to `/usr/local/cpp_modules`. Currently it'll likely need some help to find the standard library headers, so if e.g you installed the `clang-9` Ubuntu package then:
+The binary installer is built and tested with Ubuntu 18.04. Unless you happen to know that such binaries will also work with your distro, it is recommended to build from sources instead to avoid ABI problems.
+
+You can download the binary installer from [the releases page](https://github.com/stevencpp/cpp_modules/releases) and run `sudo ./cpp_modules-0.0.1-Linux.sh --skip-license` which will install the files to `/usr/local/cpp_modules`. Currently it'll likely need some help to find the standard library headers, so if e.g you installed the `clang-9` Ubuntu package then:
 ```bash
 sudo mkdir -p /usr/local/cpp_modules/lib/clang/10.0.0
 sudo ln -s /usr/lib/llvm-9/lib/clang/9*/include /usr/local/cpp_modules/lib/clang/10.0.0/include
+```
+
+## Building from sources
+
+The first step is to build the patched clang-scan-deps from [this fork of llvm-project](https://github.com/stevencpp/cpp_modules) . You can follow the regular instructions to build llvm [here](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm). To make the build faster it is enough to enable the clang project and then to build only the clang-scan-deps target. Hopefully at some point it will be possible to just use a regular clang-scan-deps to scan for modules and then this step will be unnecessary.
+
+The cpp_modules sources require a standard library that has the `<filesystem>` header by default, so a recent Visual Studio or libc++ 9+/libstdc++ 8+ on Linux. It is recommended to build cpp_modules with `-fsanitize=address,undefined` on Linux. Note that both cpp_modules and its dependencies should be built with the same flags, so if you do set any flags (with e.g `export CXXFLAGS="..."`), set them before building the dependencies.
+
+The cpp_modules dependencies should be built by installing [vcpkg](https://github.com/microsoft/vcpkg#quick-start) and running `vcpkg install fmt lmdb nlohmann-json catch2 range-v3 clara reproc abseil`. Then cpp_modules can be built and installed with:
+```bash
+# run vcvarsall.bat x86 on windows
+mkdir build && cd build
+cmake -G Ninja .. -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake \ 
+  -DCPPM_SCANNER_PATH=/path/to/the/clang-scan-deps/built/previously
+cmake --install . # needs sudo on linux
 ```
 
 ## How does this work ?

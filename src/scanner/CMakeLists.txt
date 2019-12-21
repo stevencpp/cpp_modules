@@ -18,6 +18,25 @@ FetchContent_MakeAvailable(ninja)
 
 #set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND 
+	NOT CMAKE_GENERATOR MATCHES "Visual Studio")
+	# The Ninja generator doesn't have a simple way to enable C++/CLI support.
+	# The C++/CLI /clr flag is incompatible with the /EHsc and /RTC1 flags
+	# and they're added by default to CMAKE_CXX_FLAGS / CMAKE_CXX_FLAGS_DEBUG
+	# so they need to be removed but then that affects all other targets.
+	# To preserve the flags for other targets we add them back to COMPILE_OPTIONS
+	# and then the cppm_scanner_cs target can override that property.
+	if(CMAKE_CXX_FLAGS MATCHES "/EHsc")
+		STRING (REGEX REPLACE " /EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+		add_compile_options("/EHsc")
+	endif()
+	string(TOUPPER "CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}" CXX_FLAGS_CONFIG)
+	if(${CXX_FLAGS_CONFIG} MATCHES "/RTC1")
+		STRING (REGEX REPLACE " /RTC[^ ]*" "" ${CXX_FLAGS_CONFIG} "${${CXX_FLAGS_CONFIG}}")
+		add_compile_options("/RTC1")
+	endif()
+endif()
+
 # ==== main library ====
 add_library(cppm_scanner
 	scanner.cpp
@@ -83,25 +102,29 @@ target_link_libraries(cppm_scanner_tool
 set_property(TARGET cppm_scanner_tool PROPERTY CXX_STANDARD 17)
 
 # ==== C# wrapper ====
-if(MSVC)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+	add_library(cppm_scanner_cs SHARED
+		wrapper_cs.cpp
+		dll_main.cpp
+		depinfo_cs.h
+	)
 
-add_library(cppm_scanner_cs SHARED
-	wrapper_cs.cpp
-	dll_main.cpp
-	depinfo_cs.h
-)
+	target_link_libraries(cppm_scanner_cs
+		PRIVATE cppm_scanner
+	)
 
-target_link_libraries(cppm_scanner_cs
-	PRIVATE cppm_scanner
-)
+	set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
+	
+	if(CMAKE_GENERATOR MATCHES "Visual Studio")
+		set_property(TARGET cppm_scanner_cs PROPERTY COMMON_LANGUAGE_RUNTIME "")
+		#set_property(TARGET cppm_scanner_cs PROPERTY DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
+	else()
+		set_target_properties(cppm_scanner_cs PROPERTIES COMPILE_OPTIONS "/clr")
+	endif()
 
-set_property(TARGET cppm_scanner_cs PROPERTY COMMON_LANGUAGE_RUNTIME "")
-set_property(TARGET cppm_scanner_cs PROPERTY CXX_STANDARD 17)
-#set_property(TARGET cppm_scanner_cs PROPERTY DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
-
-# copy all the DLLs
-install(TARGETS cppm_scanner_cs DESTINATION bin)
-endif(MSVC)
+	# copy all the DLLs
+	install(TARGETS cppm_scanner_cs DESTINATION bin)
+endif()
 
 install(FILES "$<TARGET_FILE:fmt::fmt>" DESTINATION bin)
 install(FILES "$<TARGET_FILE:lmdb>" DESTINATION bin)

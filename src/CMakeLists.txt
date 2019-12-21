@@ -2,8 +2,9 @@ cmake_minimum_required(VERSION 3.15)
 
 include(CPack)
 
-if(NOT DEFINED CPPM_SCANNER_PATH)
-	message(FATAL_ERROR "CPPM_SCANNER_PATH must point to the patched clang-scan-deps executable")
+set(CPPM_SCANNER_PATH "" CACHE FILEPATH "path to the patched clang-scan-deps executable")
+if(NOT EXISTS "${CPPM_SCANNER_PATH}")
+	message(FATAL_ERROR "CPPM_SCANNER_PATH ('${CPPM_SCANNER_PATH}') must point to the patched clang-scan-deps executable")
 endif()
 message(STATUS "using the scanner at '${CPPM_SCANNER_PATH}'")
 
