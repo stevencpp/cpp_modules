@@ -7,7 +7,7 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     env:
-      VCPKG_GIT_HASH: 29def6aa636a9985d068aa4624172720c0005e09
+      VCPKG_GIT_HASH: 5d7ff36ae562a9d2af61ec64d163985c38adcf17
       VCPKG_DEPS: fmt lmdb nlohmann-json catch2 range-v3 clara reproc abseil
     
     strategy:
@@ -117,7 +117,7 @@ jobs:
         echo "==== env.lock ===="
         cat env.lock
         
-        echo "$VCPKG_HASH $VCPKG_DEPS" >> vcpkg.lock
+        echo "$VCPKG_GIT_HASH $VCPKG_DEPS" >> vcpkg.lock
     
     - name: visual studio modules cache
       if: runner.os == 'Windows'
@@ -237,7 +237,7 @@ jobs:
           fi
         fi
         git reset --hard $VCPKG_GIT_HASH
-        if [ "$RUNNER_OS" = "Windows" ]; then export VCPKG_TRIPLET=--triplet x86-windows; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then export VCPKG_TRIPLET="--triplet x86-windows"; fi
         "$VCPKG_INSTALLATION_ROOT/vcpkg" install $VCPKG_TRIPLET $VCPKG_DEPS
         "$VCPKG_INSTALLATION_ROOT/vcpkg" upgrade --no-dry-run
         rm -rf downloads buildtrees packages

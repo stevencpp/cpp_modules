@@ -8,8 +8,6 @@
 #include "util.h"
 #include "trace.h"
 
-#include <absl/container/flat_hash_map.h>
-
 namespace lmdb_test {
 
 ConfigPath scanner_output_file { "scanner_output_file", "" };

@@ -96,7 +96,7 @@ Prerequisities:
 * CMake 3.15.4+
 * Clang 9+
 
-The binary installer is built and tested with Ubuntu 18.04. Unless you happen to know that such binaries will also work with your distro, it is recommended to build from sources instead to avoid ABI problems.
+The binary installer is built and tested with Ubuntu 18.04. Unless you're sure that such binaries will also work with your distro, it is recommended to build from sources instead to avoid ABI problems.
 
 You can download the binary installer from [the releases page](https://github.com/stevencpp/cpp_modules/releases) and run `sudo ./cpp_modules-0.0.1-Linux.sh --skip-license` which will install the files to `/usr/local/cpp_modules`. Currently it'll likely need some help to find the standard library headers, so if e.g you installed the `clang-9` Ubuntu package then:
 ```bash
@@ -106,7 +106,7 @@ sudo ln -s /usr/lib/llvm-9/lib/clang/9*/include /usr/local/cpp_modules/lib/clang
 
 ## Building from sources
 
-The first step is to build the patched clang-scan-deps from [this fork of llvm-project](https://github.com/stevencpp/cpp_modules) . You can follow the regular instructions to build llvm [here](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm). To make the build faster it is enough to enable the clang project and then to build only the clang-scan-deps target. Hopefully at some point it will be possible to just use a regular clang-scan-deps to scan for modules and then this step will be unnecessary.
+The first step is to build the patched clang-scan-deps from [this fork of llvm-project](https://github.com/stevencpp/cpp_modules) . You can follow the regular instructions to build llvm [here](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm). It is enough to build only the clang-scan-deps(.exe) target. At some point it will be possible to just use a regular clang-scan-deps to scan for modules and then this step will be unnecessary.
 
 The cpp_modules sources require a standard library that has the `<filesystem>` header by default, so a recent Visual Studio or libc++ 9+/libstdc++ 8+ on Linux. It is recommended to build cpp_modules with `-fsanitize=address,undefined` on Linux. Note that both cpp_modules and its dependencies should be built with the same flags, so if you do set any flags (with e.g `export CXXFLAGS="..."`), set them before building the dependencies.
 

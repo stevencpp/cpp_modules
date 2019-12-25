@@ -31,6 +31,11 @@ add_executable(cppm_test
 set_property(TARGET cppm_test PROPERTY CXX_STANDARD 20)
 set_property(TARGET cppm_test PROPERTY VS_GLOBAL_LLVMInstallDir "C:\\Program Files\\LLVM")
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+	# C++20 mode enables /permissive- which causes https://github.com/abseil/abseil-cpp/issues/357
+	set_property(SOURCE lmdb.cpp PROPERTY COMPILE_FLAGS "/std:c++17 /permissive")
+endif()
+
 target_link_libraries(cppm_test
 	PRIVATE cppm_scanner
 	PRIVATE cppm_utils

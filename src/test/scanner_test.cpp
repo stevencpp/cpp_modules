@@ -186,7 +186,7 @@ private:
 	vector_map<cppm::scan_item_idx_t, char> has_previous_result;
 
 	vector_map<cppm::scan_item_idx_t, cppm::Scanner::Result> scanner_results;
-	std::unique_ptr<cppm::ModuleVisitor> module_visitor_result;
+	std::unique_ptr<cppm::ModuleVisitor> collated_results;
 	
 	vector_map< cppm::scan_item_idx_t, char> expect_results;
 	vector_map<cppm::scan_item_idx_t, depinfo::DepInfo> all_expected;
@@ -263,7 +263,7 @@ public:
 		auto item_set_owned_view = cppm::ScanItemSetOwnedView::from(item_set);
 		auto item_set_view = cppm::ScanItemSetView::from(item_set_owned_view);
 
-		module_visitor_result = std::make_unique<cppm::ModuleVisitor>();
+		collated_results = std::make_unique<cppm::ModuleVisitor>();
 
 		DepInfoCollector collector(item_set_view.items);
 
@@ -279,7 +279,7 @@ public:
 		config.observer = &collector;
 		config.submit_previous_results = submit_previous_results;
 		if(submit_previous_results)
-			config.module_visitor = module_visitor_result.get();
+			config.collated_results = collated_results.get();
 
 		cppm::Scanner scanner;
 
@@ -424,12 +424,12 @@ public:
 			CHECK_THAT(res_requires, UnorderedEquals(exp_requires));
 
 			if (submit_previous_results) {
-				CHECK(module_visitor_result->collate_success == expect_collate_success);
-				if (module_visitor_result->collate_success) {
+				CHECK(collated_results->collate_success == expect_collate_success);
+				if (collated_results->collate_success) {
 					std::vector<cppm::scan_item_idx_t> res_imports;
-					for (auto imp_idx : module_visitor_result->imports_item[item_idx])
+					for (auto imp_idx : collated_results->imports_item[item_idx])
 						res_imports.push_back(imp_idx);
-					//auto& res_imports = module_visitor_result->imports_item[item_idx];
+					//auto& res_imports = collated_results->imports_item[item_idx];
 					auto& exp_imports = expected_module_imports[(std::size_t)item_idx];
 					CHECK_THAT(res_imports, UnorderedEquals(exp_imports));
 				}

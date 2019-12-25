@@ -1,0 +1,1 @@
+inline void foo_d1() {}

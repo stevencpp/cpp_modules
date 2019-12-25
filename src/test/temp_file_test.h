@@ -25,9 +25,15 @@ public:
 	template<typename F>
 	void create_files(std::string_view file_def, F&& file_visitor) {
 		std::ofstream fout;
+		auto starts_with = [](std::string_view a, std::string_view b) {
+			return (a.substr(0, b.size()) == b);
+		};
+
 		while (!file_def.empty()) {
 			std::string_view line = file_def.substr(0, file_def.find_first_of("\n\r"));
-			if (line.starts_with(">")) {
+
+			//if (line.starts_with(">")) { // todo: this works in C++20 but this still needs to build with C++17
+			if(starts_with(line, ">")) {
 				if (fout) fout.close();
 				std::string_view file = line.substr(2); // todo: allow arbitrary whitespace after >
 				fout.open(tmp_path / file);

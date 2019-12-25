@@ -182,7 +182,7 @@ int NinjaGenerator::scan(std::string& comp_db_path, Scanner::Config& c)
 	c.observer = &collector;
 	ModuleVisitor module_visitor;
 	c.submit_previous_results = true;
-	c.module_visitor = &module_visitor;
+	c.collated_results = &module_visitor;
 
 	auto config_owned_view = Scanner::ConfigOwnedView::from(c);
 	auto config_view = Scanner::ConfigView::from(config_owned_view);

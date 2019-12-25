@@ -246,9 +246,9 @@ public:
 		DepInfoObserver* observer = nullptr;
 		// submit scan results to the observer from previous scans for up-to-date items
 		bool submit_previous_results = false;
-		// initialize this visitor which helps with resolving transitive imports
+		// the collated module dependency information will be stored here (if needed)
 		// note: requires submit_previous_results = true
-		ModuleVisitor* module_visitor = nullptr;
+		CollatedModuleInfo* collated_results = nullptr;
 
 		template<
 			typename other_string_t,
@@ -266,7 +266,7 @@ public:
 			ret.file_tracker_running = conf.file_tracker_running;
 			ret.observer = conf.observer;
 			ret.submit_previous_results = conf.submit_previous_results;
-			ret.module_visitor = conf.module_visitor;
+			ret.collated_results = conf.collated_results;
 			return ret;
 		}
 	};

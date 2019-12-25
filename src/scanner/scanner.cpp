@@ -838,10 +838,10 @@ struct ScannerImpl {
 		return data;
 	}
 
-	void gather_exported_module_names(ModuleVisitor* module_visitor,
+	void gather_exported_module_names(CollatedModuleInfo* collated_results,
 		span_map<scan_item_idx_t, const module_id_t> exports)
 	{
-		module_visitor->exports.resize(exports.size());
+		collated_results->exports.resize(exports.size());
 
 		// todo: the allocation logic here is terrible, encapsulate it in something
 
@@ -849,21 +849,21 @@ struct ScannerImpl {
 		for (auto idx : exports.indices())
 			if (exports[idx].is_valid())
 				module_names_size += db.get_module_name(exports[idx]).size();
-		module_visitor->modules_buf.reserve(module_names_size);
+		collated_results->modules_buf.reserve(module_names_size);
 
 		for (auto idx : exports.indices()) {
 			if (exports[idx].is_valid()) {
 				auto name = db.get_module_name(exports[idx]);
-				auto new_data = module_visitor->modules_buf.data() + module_visitor->modules_buf.size();
-				module_visitor->modules_buf.insert(module_visitor->modules_buf.end(),
+				auto new_data = collated_results->modules_buf.data() + collated_results->modules_buf.size();
+				collated_results->modules_buf.insert(collated_results->modules_buf.end(),
 					name.begin(), name.end());
-				module_visitor->exports[idx] = std::string_view { new_data, name.size() };
+				collated_results->exports[idx] = std::string_view { new_data, name.size() };
 			}
 		}
-		assert(module_visitor->modules_buf.size() == module_names_size);
+		assert(collated_results->modules_buf.size() == module_names_size);
 	}
 
-	bool collate_imported_items(ModuleVisitor * module_visitor,
+	bool collate_imported_items(CollatedModuleInfo * collated_results,
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
 		span_map<module_id_t, scan_item_idx_t> exported_by,
@@ -888,12 +888,12 @@ struct ScannerImpl {
 			for (scan_item_idx_t imp_idx : scan_item_deps[idx])
 				imports_item_buf.add(imp_idx);
 		}
-		module_visitor->imports_item = imports_item_buf.to_vectors();
-		module_visitor->imports_item_buf = imports_item_buf.move_buffer();
+		collated_results->imports_item = imports_item_buf.to_vectors();
+		collated_results->imports_item_buf = imports_item_buf.move_buffer();
 		return true;
 	}
 
-	void collate_module_deps(ModuleVisitor* module_visitor,
+	void collate_module_deps(CollatedModuleInfo* collated_results,
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		span_map<scan_item_idx_t, const module_id_t> exports,
 		span_map<scan_item_idx_t, const tcb::span<module_id_t>> imports,
@@ -901,7 +901,7 @@ struct ScannerImpl {
 		module_id_t max_module_id)
 	{
 		if (exports.empty()) {
-			module_visitor->collate_success = true;
+			collated_results->collate_success = true;
 			return;
 		}
 
@@ -925,9 +925,9 @@ struct ScannerImpl {
 			}
 		}
 
-		gather_exported_module_names(/*inout:*/module_visitor, exports);
+		gather_exported_module_names(/*inout:*/collated_results, exports);
 
-		module_visitor->collate_success = collate_imported_items(/*inout:*/module_visitor,
+		collated_results->collate_success = collate_imported_items(/*inout:*/collated_results,
 			items, imports, exported_by, scan_item_deps);
 	}
 
@@ -976,7 +976,7 @@ struct ScannerImpl {
 		span_map<target_idx_t, std::string_view> targets, 
 		span_map<scan_item_idx_t, const ScanItemView> items,
 		file_time_t build_start_time, bool concurrent_targets, bool file_tracker_running,
-		DepInfoObserver * observer, bool submit_previous_results, ModuleVisitor * module_visitor)
+		DepInfoObserver * observer, bool submit_previous_results, CollatedModuleInfo * collated_results)
 	{
 		TRACE();
 
@@ -1013,7 +1013,7 @@ struct ScannerImpl {
 		if(observer && submit_previous_results) submit_up_to_date_items(utd_items, item_data, file_paths, observer);
 		// note: the following might add new files but doesn't commit any changes yet
 		db.update_file_last_write_times(deps_to_stat, real_lwt);
-		if(module_visitor || ood_items.size() > 0)
+		if(collated_results || ood_items.size() > 0)
 			db.init_stores(); // used by execute_scanner and collate_module_deps
 
 		// todo: load/store the minimized source files for clang-scan-deps from the DB
@@ -1027,8 +1027,8 @@ struct ScannerImpl {
 			header_unit_lookup, item_data.file_id, ood_items, observer,
 			/*inout: */item_data.file_deps, item_data.item_deps, scan_item_deps, item_data.exports, item_data.imports);
 
-		if (module_visitor)
-			collate_module_deps(/*inout:*/module_visitor, items,
+		if (collated_results)
+			collate_module_deps(/*inout:*/collated_results, items,
 				item_data.exports, item_data.imports, scan_item_deps, db.module_store.next_id - 1);
 
 		// note: the deps/modules in item_data become invalid once we start writing to the db
@@ -1114,8 +1114,8 @@ vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc
 	if (c.build_start_time == 0)
 		c.build_start_time = file_time_t_now();
 
-	if (c.module_visitor != nullptr && c.submit_previous_results == false)
-		throw std::invalid_argument("previous results are needed for the module visitor");
+	if (c.collated_results != nullptr && c.submit_previous_results == false)
+		throw std::invalid_argument("previous results are needed to generate collated results");
 
 	for (auto& item : c.item_set.items) {
 		if (item.target_idx >= c.item_set.targets.size())
@@ -1132,7 +1132,7 @@ vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc
 	return impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
 		ci.commands_contain_item_path, ci.commands, ci.targets, ci.items,
 		c.build_start_time, c.concurrent_targets, c.file_tracker_running,
-		c.observer, c.submit_previous_results, c.module_visitor);
+		c.observer, c.submit_previous_results, c.collated_results);
 }
 
 void Scanner::clean(const ConfigView & c) {

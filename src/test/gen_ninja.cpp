@@ -17,7 +17,7 @@ ConfigPath ninja_fork_path { "ninja_fork_path", "../../_deps/ninja-build/Debug/n
 ConfigPath scanner_tool_path { "scanner_tool_path", "../scanner/Debug/cppm_scanner_tool.exe", "path to scanner_tool.exe" };
 ConfigPath clang_scan_deps_path { "clang_scan_deps_path", R"(c:\Program Files\cpp_modules\bin\clang-scan-deps.exe)" };
 
-ConfigString ninja_run_set { "ninja_run_set", "dag,concurrent,generated" };
+ConfigString ninja_run_set { "ninja_run_set", "dag,concurrent,generated,header_units" };
 ConfigString ninja_compiler { "ninja_compiler", "" };
 
 using system_test::Compiler;
@@ -122,10 +122,14 @@ TEST_CASE("ninja generator system test", "[ninja]") {
 		GENERATE(ALL_COMPILERS);
 
 	for (std::string& test : get_run_set("", ninja_run_set)) {
+		if (test == "header_units" && compiler == Compiler::msvc)
+			continue;
+
 		full_clean_one(test);
 		run_one(test, { .generator = "Ninja", .compiler = compiler });
 		run_one(test, { .generator = "Ninja", .compiler = compiler,
 			.expect_no_work_to_do = true, .expect_out_of_date = false });
+
 		if (test == "dag") {
 			touch("", test, "C4.cpp");
 			run_one(test, { .generator = "Ninja", 
