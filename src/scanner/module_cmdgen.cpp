@@ -2,6 +2,8 @@
 
 #include "cmd_line_utils.h"
 
+#include <filesystem>
+
 namespace fs = std::filesystem;
 
 namespace cppm {
@@ -38,7 +40,7 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 
 	if (format.isMSVC()) {
 		auto cmd_idx = item_set.items[idx].command_idx;
-		std::string ifcdir = get_ifc_path(item_set.commands[cmd_idx]);
+		std::string ifcdir = get_ifc_path(item_set.commands[cmd_idx]); // todo: this is slow
 		fmt::format_to(cmd_buf, " /experimental:module /module:stdIfcDir \"{}\"",
 			ifcdir);
 

@@ -110,9 +110,7 @@ public class CppM_CL : Task
 		var lifetime = Microsoft.Build.Framework.RegisteredTaskObjectLifetime.Build;
 		shared_build_state = (SharedBuildState)this.BuildEngine4.GetRegisteredTaskObject(key, lifetime);
 		if(shared_build_state == null) {
-			shared_build_state = new SharedBuildState {
-				build_start_time = Scanner.get_time_now()
-			};
+			shared_build_state = new SharedBuildState {};
 			this.BuildEngine4.RegisterTaskObject(key, shared_build_state, lifetime, allowEarlyCollection: false);
 		}
 		//Log.LogMessage(MessageImportance.High, "build start time: {0}", shared_build_state.build_start_time);
@@ -607,7 +605,6 @@ public class CppM_CL : Task
 		var int_dir = IntDir;
 		var items_by_target = itemset.Items.GroupBy(item => item.target);
 		var scan_items = GetScanItems(itemset, items_by_target, add_commands: true);
-		var build_start_time = (ulong)0; // todo: shared_build_state.build_start_time;
 		var concurrent_tagets = true;
 		var file_tracker_running = false;
 		var observer = new OOD_Deps_Observer { cppm = this, itemset = itemset };
@@ -615,7 +612,7 @@ public class CppM_CL : Task
 		
 		Directory.CreateDirectory(DB_Path);
 		scanner.scan(tool_type, tool_path, DB_Path, int_dir, scan_items,
-			build_start_time, concurrent_tagets, file_tracker_running, observer, submit_previous_results);
+			concurrent_tagets, file_tracker_running, observer, submit_previous_results);
 		
 		if(false) {
 			// todo: handle various scan errors

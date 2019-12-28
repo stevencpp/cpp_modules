@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <ostream>
 #include "span.hpp"
 
 // todo: allow using 64-bit ids if needed

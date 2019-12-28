@@ -8,16 +8,19 @@
 #include <fstream>
 #include <unordered_map>
 #include <optional>
+#include <charconv>
+
 #include <nlohmann/json.hpp>
 
 #include "lmdb_wrapper.h"
 #include "lmdb_path_store.h"
+#include "lmdb_store.h"
 #include "lmdb_string_store.h"
 #include "strong_id.h"
 #include "multi_buffer.h"
 #include "trace.h"
 #include "cmd_line_utils.h"
-#include <charconv>
+#include "file_time.h"
 
 namespace cppm {
 
@@ -82,11 +85,11 @@ struct DB {
 
 	struct file_entry {
 		file_time_t last_write_time;
-		file_time_t last_stat_time;
 	};
 
 	mdb::string_id_store<db_target_id> target_store { "targets" };
-	mdb::path_store<file_id_t, file_entry> path_store;
+	mdb::path_id_store<file_id_t> path_store { "paths" };
+	mdb::id_store<file_id_t, file_entry> file_data_store { "file_data" };
 	mdb::string_id_store<module_id_t> module_store { "modules" };
 
 	auto get_item_file_ids(std::string_view item_root_path, span_map<scan_item_idx_t, const ScanItemView> items)
@@ -97,18 +100,6 @@ struct DB {
 		for (auto& item : items)
 			paths.push_back(item.path);
 		return path_store.get_file_ids(txn_rw, item_root_path, paths);
-	}
-
-	void update_file_last_write_times(span_map<to_stat_idx_t, file_id_t> files_to_stat,
-		const vector_map<file_id_t, file_time_t>& lwts)
-	{
-		TRACE();
-		// todo: if the file didn't change, could we avoid updating all the file records ?
-		auto last_stat_time = file_time_t_now();
-
-		path_store.update_file_data(files_to_stat, [&](to_stat_idx_t idx) {
-			return file_entry { lwts[files_to_stat[idx]], last_stat_time };
-		});
 	}
 
 	template<typename size_type, typename... Vs>
@@ -189,7 +180,7 @@ struct DB {
 		return data;
 	}
 
-	void update_items( // todo: break this up
+	void update_items(
 		const vector_map<scan_item_idx_t, ood_state>& item_ood,
 		span_map<scan_item_idx_t, const db_target_id> item_target_ids,
 		span_map<scan_item_idx_t, const ScanItemView> items,
@@ -268,23 +259,19 @@ struct DB {
 	}
 
 	struct file_data {
-		// note: this is only needed if we don't want to re-stat the files
-		// e.g if the scanner is run multiple times during the same build
-		// or if a file tracker daemon is keeping these values up to date
+		// note: only used when a file tracker is keeping these values up to date
 		vector_map<unique_deps_idx_t, file_time_t> last_write_time;
-		vector_map<unique_deps_idx_t, file_time_t> last_stat_time;
 		// todo: maybe hash ? - we already need to read all the files to scan them so ..
 		void resize(unique_deps_idx_t size) {
-			DB::resize_all_to(size, last_write_time, last_stat_time);
+			DB::resize_all_to(size, last_write_time);
 		}
 	};
 	auto get_file_data(const vector_map<unique_deps_idx_t, file_id_t>& files) {
 		TRACE();
 		file_data data;
 		data.resize(files.size());
-		path_store.get_file_data(txn_rw, files, [&](unique_deps_idx_t idx, const file_entry& f) {
+		file_data_store.get_data(txn_rw, files, [&](unique_deps_idx_t idx, const file_entry& f) {
 			data.last_write_time[idx] = f.last_write_time;
-			data.last_stat_time[idx] = f.last_stat_time;
 		});
 		return data;
 	}
@@ -305,7 +292,7 @@ struct DB {
 	}
 
 	struct db_header {
-		constexpr static int current_version = 2;
+		constexpr static int current_version = 3;
 		int version = current_version;
 	};
 
@@ -431,9 +418,7 @@ struct ScannerImpl {
 	}
 
 	auto remove_deps_already_stated(vector_map<unique_deps_idx_t, file_id_t>& unique_deps,
-		const vector_map<unique_deps_idx_t, file_time_t>& db_last_write_time,
-		const vector_map<unique_deps_idx_t, file_time_t>& db_last_stat_time,
-		file_time_t build_start_time, bool file_tracker_running, file_id_t max_file_id)
+		bool file_tracker_running, file_id_t max_file_id)
 	{
 		TRACE();
 		struct ret_t {
@@ -441,19 +426,12 @@ struct ScannerImpl {
 			span_map<to_stat_idx_t, file_id_t> deps_to_stat;
 		} ret;
 		ret.real_lwts.resize(max_file_id);
-		auto idx = unique_deps_idx_t { 0 };
-		auto itr_end = std::remove_if(unique_deps.begin(), unique_deps.end(), [&](file_id_t file_id) {
-			auto i = idx++;
-			file_id_t dep_id = unique_deps[i];
-			if (file_tracker_running || db_last_stat_time[i] > build_start_time) {
-				ret.real_lwts[dep_id] = db_last_write_time[i];
-				return true; // this was already stat-ed during this build, no need to stat it again
-			}
-			return false;
-		});
-		if (!unique_deps.empty()) {
-			file_id_t* start = &unique_deps.front(), * end = start + (itr_end - unique_deps.begin());
-			ret.deps_to_stat = span_map<to_stat_idx_t, file_id_t> { start, end };
+		if (file_tracker_running) {
+			auto file_data = db.get_file_data(unique_deps);
+			for (auto idx : unique_deps.indices())
+				ret.real_lwts[unique_deps[idx]] = file_data.last_write_time[idx];
+		} else {
+			ret.deps_to_stat = { unique_deps.data(), std::size_t(unique_deps.size()) }; // todo: should use id_cast<to_stat_idx_t>
 		}
 		return ret;
 	}
@@ -975,7 +953,7 @@ struct ScannerImpl {
 		bool commands_contain_item_path, span_map<cmd_idx_t, std::string_view> commands,
 		span_map<target_idx_t, std::string_view> targets, 
 		span_map<scan_item_idx_t, const ScanItemView> items,
-		file_time_t build_start_time, bool concurrent_targets, bool file_tracker_running,
+		bool concurrent_targets, bool file_tracker_running,
 		DepInfoObserver * observer, bool submit_previous_results, CollatedModuleInfo * collated_results)
 	{
 		TRACE();
@@ -996,9 +974,8 @@ struct ScannerImpl {
 		auto item_data = db.get_item_data(item_target_ids, item_root_path, items);
 		// todo: if concurrent_targets == false, it might be more efficient to assume all files are deps ?
 		auto unique_deps = get_unique_deps(item_data.file_deps, item_data.file_id, item_data.max_file_id);
-		auto file_data = db.get_file_data(unique_deps);
 		auto [real_lwt, deps_to_stat] = remove_deps_already_stated(unique_deps,
-			file_data.last_write_time, file_data.last_stat_time, build_start_time, file_tracker_running, item_data.max_file_id);
+			file_tracker_running, item_data.max_file_id);
 		auto need_paths_for = deps_to_stat.to_span();
 		if (observer && submit_previous_results) need_paths_for = unique_deps.to_span();
 		auto file_paths = get_file_paths(item_root_path, items, item_data.file_id, need_paths_for, item_data.max_file_id);
@@ -1010,9 +987,8 @@ struct ScannerImpl {
 		auto [ood_items, utd_items] = partition_items_by_ood(item_ood);
 		// todo: the notification and the write could happen in parallel with scanning
 		// note: the observer must not launch another scan on the same DB while we're holding the transaction lock
-		if(observer && submit_previous_results) submit_up_to_date_items(utd_items, item_data, file_paths, observer);
-		// note: the following might add new files but doesn't commit any changes yet
-		db.update_file_last_write_times(deps_to_stat, real_lwt);
+		if(observer && submit_previous_results)
+			submit_up_to_date_items(utd_items, item_data, file_paths, observer);
 		if(collated_results || ood_items.size() > 0)
 			db.init_stores(); // used by execute_scanner and collate_module_deps
 
@@ -1043,7 +1019,7 @@ struct ScannerImpl {
 		// files:
 		// - new last write times / last stat time
 		// - new files from items
-		// - new files from deps (added with last_write_time/last_stat_time = 0)
+		// - new files from deps (added with last_write_time = 0)
 		// items:
 		// - new cmd hashes
 		// - last_successful_scan = now ? todo: errors ?
@@ -1111,9 +1087,6 @@ vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc
 	if (c.int_dir.empty()) throw std::invalid_argument("must provide an intermediate path");
 	if (ci.targets.empty()) throw std::invalid_argument("must provide at least one target");
 
-	if (c.build_start_time == 0)
-		c.build_start_time = file_time_t_now();
-
 	if (c.collated_results != nullptr && c.submit_previous_results == false)
 		throw std::invalid_argument("previous results are needed to generate collated results");
 
@@ -1131,7 +1104,7 @@ vector_map<scan_item_idx_t, Scanner::Result> Scanner::scan(const ConfigView & cc
 
 	return impl->scan(c.tool_type, c.tool_path, c.db_path, c.int_dir, ci.item_root_path,
 		ci.commands_contain_item_path, ci.commands, ci.targets, ci.items,
-		c.build_start_time, c.concurrent_targets, c.file_tracker_running,
+		c.concurrent_targets, c.file_tracker_running,
 		c.observer, c.submit_previous_results, c.collated_results);
 }
 

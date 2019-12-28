@@ -136,7 +136,6 @@ void scan_single_item_set(cppm::ScanItemSet& item_set) {
 	config.db_path = single_db_path;
 	config.int_dir = config.db_path;
 	config.item_set = item_set_view;
-	config.build_start_time = 0;
 	config.concurrent_targets = false;
 	config.file_tracker_running = false;
 	//config.observer = &collector;
@@ -273,7 +272,6 @@ public:
 		config.db_path = tmp_path_str;
 		config.int_dir = config.db_path;
 		config.item_set = item_set_view;
-		config.build_start_time = 0;
 		config.concurrent_targets = false;
 		config.file_tracker_running = false;
 		config.observer = &collector;
@@ -816,6 +814,5 @@ import a;
 }
 
 // todo: test item_root_dir
-// todo: test build_start_time
 
 } // namespace scanner_test

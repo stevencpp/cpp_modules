@@ -7,7 +7,6 @@
 
 #include "depinfo.h"
 #include "strong_id.h"
-#include "file_time.h"
 
 namespace cppm {
 
@@ -235,8 +234,6 @@ public:
 		string_t int_dir;
 		// what to scan:
 		ScanItemSetBase<string_t, map_t> item_set;
-		// used to speed up multiple invocations during the same build:
-		file_time_t build_start_time = 0;
 		// if false: must not invoke the tool on the same DB concurrently:
 		// if true: can use the same DB as long as all concurrent invocations are scanning different items // todo: too restrictive ?
 		bool concurrent_targets = true;
@@ -261,7 +258,6 @@ public:
 			ret.db_path = conf.db_path;
 			ret.int_dir = conf.int_dir;
 			ret.item_set = ScanItemSetBase<string_t, map_t>::from(conf.item_set);
-			ret.build_start_time = conf.build_start_time;
 			ret.concurrent_targets = conf.concurrent_targets;
 			ret.file_tracker_running = conf.file_tracker_running;
 			ret.observer = conf.observer;

@@ -65,8 +65,7 @@ TEST_CASE("lmdb - path store", "[lmdb]") {
 	LMDB_Test test;
 	auto env = test.init_env();
 	auto txn = env.txn_read_write();
-	struct file_entry {};
-	mdb::path_store<uint32_t, file_entry> ps;
+	mdb::path_id_store<uint32_t> ps { "paths" };
 	
 	test.create_dir("a/.b/c/d");
 
@@ -318,8 +317,7 @@ TEST_CASE("lmdb - path store - benchmark", "[lmdb_path_store_benchmark]") {
 	LMDB_Test test;
 	auto env = test.init_env();
 	auto txn = env.txn_read_write();
-	struct file_entry {};
-	mdb::path_store<uint32_t, file_entry> ps;
+	mdb::path_id_store<uint32_t> ps { "paths" };
 	ps.update_current_path();
 
 #if 0

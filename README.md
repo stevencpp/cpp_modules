@@ -2,7 +2,7 @@
 
 # cpp_modules
 
-This repository is a collection of experimental tools/libraries that can be used to build C++ modules with CMake's Ninja or MSBuild generators and Clang as the compiler on Linux or MSVC/ClangCl/Clang as the compiler on Windows. The tools use a patched clang-scan-deps to scan for module dependencies and the results are stored in an LMDB embedded store for incremental builds. Binary installers are available for Windows and Linux.
+This repository is a collection of experimental tools/libraries that can be used to build C++ modules with CMake's Ninja or MSBuild generators and Clang as the compiler on Linux or MSVC/ClangCl/Clang as the compiler on Windows. The tools use a patched clang-scan-deps to scan for module dependencies and the results are persisted in an LMDB embedded store for incremental builds. Binary installers are available for Windows and Linux.
 
 ## Example
 
@@ -11,14 +11,14 @@ A.m.cpp:
 module;
 #include <stdio.h>
 export module A;
-export void foo() {
+export void hello() {
 	puts("hello ");
 }
 ```
 B.h:
 ```c++
 #include <stdio.h>
-inline void bar() {
+inline void world() {
 	puts("world!");
 }
 ```
@@ -27,14 +27,15 @@ main.cpp:
 import A;
 
 #ifdef __clang__
-import "B.h";
+  import "B.h";
+  #include "B.h" // translated to an import
 #else
-#include "B.h"
+  #include "B.h" // regular include with MSVC
 #endif
 
 int main() {
-	foo();
-	bar();
+	hello();
+	world();
 	return 0;
 }
 ```
@@ -114,8 +115,8 @@ The cpp_modules dependencies should be built by installing [vcpkg](https://githu
 ```bash
 # run vcvarsall.bat x86 on windows
 mkdir build && cd build
-cmake -G Ninja .. -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake \ 
-  -DCPPM_SCANNER_PATH=/path/to/the/clang-scan-deps/built/previously
+cmake -G Ninja .. -DCMAKE_TOOLCHAIN_FILE="/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake" \ 
+  -DCPPM_SCANNER_PATH="/path/to/the/clang-scan-deps/built/previously"
 cmake --install . # needs sudo on linux
 ```
 

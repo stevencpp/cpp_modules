@@ -21,10 +21,13 @@ namespace mdb {
 namespace fs = std::filesystem;
 
 template <
-	typename file_id_t,
-	typename file_entry
+	typename file_id_t
 >
-struct path_store {
+struct path_id_store {
+	const char* db_name = nullptr;
+
+	path_id_store(const char* db_name) : db_name(db_name) {}
+
 	// note: these paths are not canonical in the std::canonical sense
 	// i.e they may contain "~" abbreviations and symlinks
 	// but the separators are normalized and "."/".."s are removed
@@ -223,12 +226,12 @@ struct path_store {
 		return itr->second;
 	}
 
-	auto open_paths_db(mdb::mdb_txn<false>& txn_rw) {
-		return txn_rw.open_db<uint32_t, std::string_view>("paths");
+	auto open_db(mdb::mdb_txn<false>& txn_rw) {
+		return txn_rw.open_db<uint32_t, std::string_view>(db_name);
 	}
 
-	void commit_path_changes(mdb::mdb_txn<false>& txn_rw) {
-		auto db = open_paths_db(txn_rw);
+	void commit_changes(mdb::mdb_txn<false>& txn_rw) {
+		auto db = open_db(txn_rw);
 
 		if (id_to_normal_path_ref.empty())
 			return;
@@ -252,7 +255,7 @@ struct path_store {
 	}
 
 	void read_paths(mdb::mdb_txn<false>& txn_rw, std::string_view item_root_path) {
-		auto db = open_paths_db(txn_rw);
+		auto db = open_db(txn_rw);
 
 		normal_paths.clear();
 		id_to_normal_path_ref.clear();
@@ -297,67 +300,13 @@ struct path_store {
 		return normal_paths.get_alloc(id_to_normal_path_ref[file_id]);
 	}
 
-	auto open_file_data_db(mdb::mdb_txn<false>& txn_rw) {
-		return txn_rw.open_db<file_id_t, file_entry>("file_data");
-	}
-
-	// note: this doesn't work if called after update_file_data
-	template<typename idx_t, typename F>
-	void get_file_data(mdb::mdb_txn<false>& txn_rw, const vector_map<idx_t, file_id_t>& files, F&& data_func) {
-		auto db = open_file_data_db(txn_rw);
-
-		for (auto idx : files.indices()) {
-			auto file_id = files[idx];
-			if (file_id > db_max_id) // there's no data to fetch for new entires
-				continue;
-			// update_file_data is not called for e.g new headers found while scanning
-			try { // todo: don't use exceptions for this
-				data_func(idx, db.get(file_id));
-			} catch(mdb::key_not_found_exception &) {}
-		}
-	}
-
-	std::vector<std::pair<file_id_t, file_entry>> new_file_data;
-
-	// note: this should only be called once
-	template<typename idx_t, typename F>
-	void update_file_data(const span_map<idx_t, file_id_t> files, F&& data_func) {
-		new_file_data.reserve((std::size_t)next_id);
-		for (auto idx : files.indices()) {
-			auto file_id = files[idx];
-			new_file_data.push_back({ file_id, data_func(idx) });
-		}
-	}
-
-	void commit_file_data_changes(mdb::mdb_txn<false>& txn_rw) {
-		auto db = open_file_data_db(txn_rw);
-
-		for (auto& [file_id, entry] : new_file_data)
-			db.put(file_id, entry);
-	}
-
-	void commit_changes(mdb::mdb_txn<false>& txn_rw) {
-		commit_path_changes(txn_rw);
-		commit_file_data_changes(txn_rw);
-	}
-
-	void print_paths(mdb::mdb_txn<false>& txn_rw) {
+	// todo: this should work with a read-only txn as well
+	void print(mdb::mdb_txn<false>& txn_rw) {
 		read_paths(txn_rw, "");
 		for (auto id = file_id_t { 1 }; id < id_to_normal_path_ref.size(); ++id) {
 			auto path = normal_paths.get_alloc(id_to_normal_path_ref[id]);
 			fmt::print("{} - {}\n", id, path);
 		}
-	}
-
-	void print_file_data(mdb::mdb_txn<false>& txn_rw) {
-		auto db = open_file_data_db(txn_rw);
-		// todo:
-	}
-
-	// todo: this should work with a read-only txn as well
-	void print(mdb::mdb_txn<false>& txn_rw) {
-		print_paths(txn_rw);
-		print_file_data(txn_rw);
 	}
 };
 

@@ -278,9 +278,8 @@ public:
 	};
 
 	String^ scan(Type tool_type, String^ tool_path, String^ db_path, String^ int_dir, 
-		ScanItemSet^ scan_items, cppm::file_time_t build_start_time, 
-		bool concurrent_targets, bool file_tracker_running, DepInfoObserver^ observer,
-		bool submit_previous_results)
+		ScanItemSet^ scan_items, bool concurrent_targets, bool file_tracker_running, 
+		DepInfoObserver^ observer, bool submit_previous_results)
 	{
 		// let the converter allocate enough space for all of the strings at once
 		UCS2_to_UTF8_Converter conv;
@@ -297,7 +296,6 @@ public:
 		config.int_dir = conv.to_sv(int_dir);
 		auto owned_view = convert(conv, scan_items);
 		config.item_set = cppm::ScanItemSetView::from(owned_view);
-		config.build_start_time = build_start_time;
 		config.concurrent_targets = concurrent_targets;
 		config.file_tracker_running = file_tracker_running;
 		config.observer = &forwader;
@@ -334,10 +332,6 @@ public:
 
 		std::string ret = "v4";
 		return gcnew String(ret.c_str());
-	}
-
-	static cppm::file_time_t get_time_now() {
-		return cppm::file_time_t_now();
 	}
 };
 

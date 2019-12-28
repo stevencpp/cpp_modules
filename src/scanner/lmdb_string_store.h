@@ -115,7 +115,6 @@ struct string_id_store
 		bool first = true;
 		for (auto&& [id, str] : db) {
 			if (first) { first = false; continue; }
-			// todo: get fmt to work with strong ids
 			fmt::print("{} - {}\n", id, str);
 		}
 	}

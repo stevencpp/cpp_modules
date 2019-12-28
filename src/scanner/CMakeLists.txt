@@ -11,7 +11,7 @@ include(FetchContent)
 FetchContent_Declare(
   ninja
   GIT_REPOSITORY https://github.com/stevencpp/ninja.git
-  GIT_TAG        5e7af71ddbc88a5f22e1b1a6ef02f5b12e752f0a
+  GIT_TAG        771b909a1627b2d45ba174fbf86653f0a6a3ab55
 )
 
 FetchContent_MakeAvailable(ninja)
@@ -46,6 +46,7 @@ add_library(cppm_scanner
 	lmdb_wrapper_impl.h
 	lmdb_string_store.h
 	lmdb_path_store.h
+	lmdb_store.h
 	strong_id.h
 	multi_buffer.h
 	nl_json_depinfo.h
