@@ -55,7 +55,7 @@ void ModuleCommandGenerator::generate(scan_item_idx_t idx, Format format,
 		});
 
 		// todo: header unit flags ?
-	} else if(format.isClang()) {
+	} else if(format.isClang() || format.isClangCl()) {
 		if (has_import)
 			if(format.isClangCl())
 				// clang-cl doesn't support gcc compatible driver flags, it needs CC1 flags
@@ -95,12 +95,26 @@ void ModuleCommandGenerator::full_cmd_to_string(std::string& str)
 	}
 }
 
+std::string ModuleCommandGenerator::full_cmd_to_string()
+{
+	std::string full_cmd;
+	full_cmd_to_string(full_cmd);
+	return full_cmd;
+}
+
 void ModuleCommandGenerator::references_to_string(std::string& str)
 {
 	if (references_end > 0) {
 		str.resize(references_end);
 		memcpy(&str[0], cmd_buf.data(), references_end);
 	}
+}
+
+std::string ModuleCommandGenerator::references_to_string()
+{
+	std::string references;
+	references_to_string(references);
+	return references;
 }
 
 ModuleCommandGenerator::Format ModuleCommandGenerator::detect_format(std::string_view cmd) {

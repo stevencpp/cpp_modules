@@ -28,7 +28,7 @@ struct ModuleCommandGenerator
 		FormatEnum format = Unknown;
 		operator bool() { return format != Unknown; }
 		bool isClangCl() { return format == ClangCl;  }
-		bool isClang() { return isClangCl() || format == Clang; };
+		bool isClang() { return format == Clang; };
 		bool isMSVC() { return format == MSVC; }
 		bool isGCC() { return format == GCC; }
 		static Format from_string(std::string_view f) {
@@ -51,8 +51,10 @@ struct ModuleCommandGenerator
 		std::function<std::string_view(scan_item_idx_t)> bmi_file_func);
 	
 	void full_cmd_to_string(std::string& str);
+	std::string full_cmd_to_string();
 
 	void references_to_string(std::string& str);
+	std::string references_to_string();
 };
 
 } // namespace cppm
